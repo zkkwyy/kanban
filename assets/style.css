@@ -125,7 +125,17 @@ table.us .heat { text-align: right; color: #aab3c5; }
 
 /* (统计卡已移除, 其样式一并删除) */
 
-.chart { width: 100%; height: 420px; }
+.chart { width: 100%; height: 420px; position: relative; }
+/* 图表右上角数据更新时间标签 */
+.chart-upd {
+  position: absolute; top: 4px; right: 8px; z-index: 2;
+  font-size: 11px; color: #8a93a6;
+  background: rgba(23, 28, 39, 0.82);
+  border: 1px solid rgba(42, 51, 70, 0.6);
+  padding: 2px 8px; border-radius: 6px;
+  pointer-events: none;
+  white-space: nowrap;
+}
 
 .note {
   color: var(--muted);

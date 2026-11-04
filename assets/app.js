@@ -24,6 +24,13 @@
   }
   function pctClass(v) { return v > 0 ? "up" : (v < 0 ? "down" : ""); }
   function sign(n) { return n > 0 ? "+" : ""; }
+  /* 图表右上角数据更新时间 */
+  function setUpd(id, ts) {
+    var el = $(id);
+    if (el) {
+      el.textContent = ts ? "更新 " + String(ts).replace("T", " ").slice(0, 16) : "更新 --";
+    }
+  }
 
   /* ---------------- 通用图表主题 ---------------- */
   var AXIS = {
@@ -55,6 +62,7 @@
 
   function renderFlows(flows) {
     state.flows = flows;
+    setUpd("flows-upd", flows.updated);
     var dates = flows.dates;
     var gjsMap = {};
     var g = flows.gjs || {};
@@ -159,6 +167,7 @@
 
   /* ---------------- 2. 融资余额 ---------------- */
   function renderMargin(m) {
+    setUpd("margin-upd", m.updated);
     var dates = m.dates, rzye = m.rzye;
     var chart = charts.margin || echarts.init($("margin-chart"));
     charts.margin = chart;
@@ -195,6 +204,7 @@
 
   /* ---------------- 3. A股成交集中度 ---------------- */
   function renderConc(c) {
+    setUpd("conc-upd", c.updated);
     var oh = c.overheat;
     var chart = charts.conc || echarts.init($("conc-chart"));
     charts.conc = chart;
@@ -265,6 +275,7 @@
   /* ---------------- 4. 全市场情绪(站上均线比例, 分板块) ---------------- */
   function renderSent(s) {
     state.sent = s;
+    setUpd("sent-upd", s.updated);
     var b = (s.boards || {})[state.sentBoard || "all"] || s.boards.all || {};
     var chart = charts.sent || echarts.init($("sent-chart"));
     charts.sent = chart;
@@ -337,6 +348,7 @@
   /* ---------------- 5. 沪深300全收益 vs 隐形支撑线(K×二级债基) ---------------- */
   function renderTri(t) {
     state.tri = t;
+    setUpd("tri-upd", t.updated);
     var dates = t.dates, tri = t.tri;
     var bd = t.bond_dates || [], bv = t.bond || [];
     var bmap = {};
@@ -678,6 +690,7 @@
   /* ---------------- 8. 成交金额(分板块) ---------------- */
   function renderTurn(t) {
     state.turn = t;
+    setUpd("turn-upd", t.updated);
     var b = (t.boards || {})[state.turnBoard || "all"] || [];
     var chart = charts.turn || echarts.init($("turn-chart"));
     charts.turn = chart;
