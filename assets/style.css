@@ -61,18 +61,27 @@ main {
 main .card { margin-bottom: 0; }
 main footer { grid-column: 1 / -1; max-width: none; padding: 0; }
 
-/* 美股表格: 卡片内滚动, 与模块⑤高度对齐 */
-#sec-us { display: flex; flex-direction: column; }
-#us-table { flex: 1 1 auto; min-height: 0; overflow-y: auto; max-height: 430px; }
-#us-table::-webkit-scrollbar { width: 8px; }
-#us-table::-webkit-scrollbar-thumb { background: #2a3346; border-radius: 4px; }
-#us-table::-webkit-scrollbar-track { background: transparent; }
+/* 表格卡片: 卡片内滚动, 高度以左侧图表模块(⑤/⑧)为准 */
+#sec-us, #sec-hot { display: flex; flex-direction: column; }
+#sec-us .card-head h2, #sec-tri .card-head h2,
+#sec-hot .card-head h2, #sec-turn .card-head h2 { white-space: nowrap; }
+#us-table { flex: 1 1 auto; min-height: 0; overflow-y: auto; max-height: 345px; }
+#hot-table { flex: 1 1 auto; min-height: 0; overflow-y: auto; max-height: 390px; }
+#us-table::-webkit-scrollbar, #hot-table::-webkit-scrollbar { width: 8px; }
+#us-table::-webkit-scrollbar-thumb, #hot-table::-webkit-scrollbar-thumb { background: #2a3346; border-radius: 4px; }
+#us-table::-webkit-scrollbar-track, #hot-table::-webkit-scrollbar-track { background: transparent; }
+
+/* 热股榜: 多榜共热高亮(金色) */
+.hot-multi td { background: rgba(212, 169, 79, 0.13); }
+.hot-multi td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.hot-star { color: var(--accent); font-weight: 700; font-size: 12px; white-space: nowrap; }
+table.us .heat { text-align: right; color: #aab3c5; }
 
 @media (max-width: 1300px) {
   main { display: block; }
   main .card { margin-bottom: 18px; }
   main footer { max-width: 1200px; margin: 0 auto; padding: 0 16px 30px; }
-  #us-table { max-height: 560px; }
+  #us-table, #hot-table { max-height: 560px; }
 }
 
 .card {

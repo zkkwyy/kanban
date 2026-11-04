@@ -20,9 +20,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common as C  # noqa: E402
 
 DAYS_DIR = os.path.join(C.RAW, "sent_days")
+TURNDIR = os.path.join(C.RAW, "turnover_days")
 CKPT = os.path.join(C.RAW, "sent_ckpt.pkl")
 STATE = os.path.join(C.STATE, "sent_state.json")
 OUT = os.path.join(C.DATA, "sentiment.json")
+TURN_OUT = os.path.join(C.DATA, "turnover.json")
 WINDOWS = (5, 10, 20)
 START = "2005-01-01"
 BOARDS = ("main", "chinext", "star", "bse")
@@ -96,12 +98,12 @@ def _stock_flags(rows):
 
 
 def fetch_snapshot_prices():
-    """收盘后全市场(含北交所)最新价: [(code, price), ...] 仅当日有交易"""
+    """收盘后全市场(含北交所)最新价: [(code, price, 当日成交额元), ...] 仅当日有交易"""
     out, pn = [], 1
     while True:
         j = C.get_json("https://push2.eastmoney.com/api/qt/clist/get", params={
             "pn": str(pn), "pz": "100", "po": "0", "np": "1", "fltt": "2", "invt": "2",
-            "fs": FS, "fields": "f12,f2",
+            "fs": FS, "fields": "f12,f2,f6",
         })
         rows = (j.get("data") or {}).get("diff") or []
         if not rows:
@@ -109,7 +111,8 @@ def fetch_snapshot_prices():
         for r in rows:
             v = r.get("f2")
             if isinstance(v, (int, float)) and v > 0:
-                out.append((str(r["f12"]), float(v)))
+                out.append((str(r["f12"]), float(v),
+                            float(r["f6"]) if isinstance(r.get("f6"), (int, float)) else 0.0))
         total = int((j.get("data") or {}).get("total") or 0)
         if pn * 100 >= total:
             break
@@ -171,12 +174,58 @@ def save_series(days):
     return s
 
 
+# ---------------- 成交金额(与情绪共用同一次个股遍历) ----------------
+
+def load_turnover():
+    """{date: {board: 当日成交额(元)}}"""
+    days = {}
+    if os.path.isdir(TURNDIR):
+        for fn in os.listdir(TURNDIR):
+            if fn.endswith(".json"):
+                v = C.load_json(os.path.join(TURNDIR, fn))
+                if v and isinstance(v, dict):
+                    days[fn[:-5]] = {b: float(v.get(b) or 0) for b in BOARDS}
+    return days
+
+
+def build_turnover(days):
+    """{dates, boards: {all/main/chinext/star/bse: [亿元...]}}"""
+    dates = sorted(days)
+    names = ("all",) + BOARDS
+    agg = {b: [] for b in names}
+    for d in dates:
+        v = days[d]
+        tot = sum((v.get(b) or 0.0) for b in BOARDS)
+        for name in names:
+            amt = tot if name == "all" else (v.get(name) or 0.0)
+            agg[name].append(round(amt / 1e8, 1))     # 亿
+    return {
+        "updated": C.now_str(),
+        "dates": dates,
+        "boards": agg,
+        "method": ("全A股(含北交所)当日总成交额, 按板块汇总, 单位亿元; "
+                   "全市场=主板+创业板+科创板+北交所。"),
+    }
+
+
+def save_turnover(days):
+    t = build_turnover(days)
+    C.save_json(TURN_OUT, t)
+    if t["dates"]:
+        i = len(t["dates"]) - 1
+        C.log("turnover: %d days, all=%.0f亿 main=%.0f亿 (%s)"
+              % (len(t["dates"]), t["boards"]["all"][i],
+                 t["boards"]["main"][i], t["dates"][i]))
+    return t
+
+
 # ---------------- 回填 ----------------
 
 def backfill():
     uni = fetch_universe()
     codes = sorted(uni.keys())
     days = {}       # date -> {board: [6]}
+    amt = {}        # date -> {board: 当日成交额(元)}
     state = {}      # code -> [last 20 closes]
     done = set()
     if os.path.exists(CKPT):
@@ -184,6 +233,7 @@ def backfill():
             with open(CKPT, "rb") as f:
                 st = pickle.load(f)
             days = st.get("days") or {}
+            amt = st.get("amt") or {}
             state = st.get("state") or {}
             done = set(st.get("done") or [])
             C.log("ckpt resume: %d days, %d in state, %d/%d done"
@@ -206,18 +256,20 @@ def backfill():
             cnt += 1
             if rows:
                 bd = board_of(code)
-                for d, fl in _stock_flags(rows):
+                for (d, _close, ramt), (_d2, fl) in zip(rows, _stock_flags(rows)):
                     if d < START:
                         continue
                     b = days.get(d)
                     if b is None:
                         b = days[d] = {x: [0] * 6 for x in BOARDS}
+                        amt[d] = {x: 0.0 for x in BOARDS}
                     c = b[bd]
                     for wi in range(3):
                         if fl[wi] is not None:
                             c[wi * 2] += 1
                             if fl[wi]:
                                 c[wi * 2 + 1] += 1
+                    amt[d][bd] += ramt
                 cl = [r[1] for r in rows]
                 if market_open and cl and rows[-1][0] == today:
                     cl = cl[:-1]
@@ -226,10 +278,11 @@ def backfill():
             if cnt % 500 == 0:
                 C.log("sent kline %d/%d (days=%d)" % (cnt, len(todo), len(days)))
                 with open(CKPT, "wb") as f:
-                    pickle.dump({"days": days, "state": state, "done": sorted(done)},
-                                f, protocol=4)
+                    pickle.dump({"days": days, "amt": amt, "state": state,
+                                 "done": sorted(done)}, f, protocol=4)
     with open(CKPT, "wb") as f:
-        pickle.dump({"days": days, "state": state, "done": sorted(done)}, f, protocol=4)
+        pickle.dump({"days": days, "amt": amt, "state": state,
+                     "done": sorted(done)}, f, protocol=4)
 
     if os.path.isdir(DAYS_DIR):
         for fn in os.listdir(DAYS_DIR):
@@ -238,11 +291,19 @@ def backfill():
     os.makedirs(DAYS_DIR, exist_ok=True)
     for d in sorted(days):
         C.save_json(os.path.join(DAYS_DIR, d + ".json"), days[d])
-    C.log("sent days written: %d" % len(days))
+    if os.path.isdir(TURNDIR):
+        for fn in os.listdir(TURNDIR):
+            if fn.endswith(".json"):
+                os.remove(os.path.join(TURNDIR, fn))
+    os.makedirs(TURNDIR, exist_ok=True)
+    for d in sorted(amt):
+        C.save_json(os.path.join(TURNDIR, d + ".json"), amt[d])
+    C.log("sent days written: %d (turnover %d)" % (len(days), len(amt)))
     os.makedirs(os.path.dirname(STATE), exist_ok=True)
     C.save_json(STATE, state)
     C.log("sent state saved: %d stocks" % len(state))
     save_series(days)
+    save_turnover(amt)
     try:
         os.remove(CKPT)
     except OSError:
@@ -271,11 +332,13 @@ def update(tdays=None):
         return None
 
     counters = {b: [0] * 6 for b in BOARDS}
+    amt_today = {b: 0.0 for b in BOARDS}
     seen = set()
-    for code, price in rows:
+    for code, price, ramt in rows:
         bd = board_of(code)
         if not bd:
             continue
+        amt_today[bd] += ramt
         cl = state.get(code)
         if cl is None:
             continue          # 新股: 稍后用K线补种
@@ -290,7 +353,7 @@ def update(tdays=None):
                     c[wi * 2 + 1] += 1
         state[code] = newc[-20:]
 
-    missing = [c for c, _ in rows if board_of(c) and c not in seen]
+    missing = [c for c, _p, _a in rows if board_of(c) and c not in seen]
 
     def seed(code):
         try:
@@ -321,9 +384,14 @@ def update(tdays=None):
         return None
     days[today] = counters
     C.save_json(os.path.join(DAYS_DIR, today + ".json"), counters)
+    tdays_amt = load_turnover()
+    tdays_amt[today] = amt_today
+    C.save_json(os.path.join(TURNDIR, today + ".json"), amt_today)
     C.save_json(STATE, state)
-    C.log("sent update: %s main 5日=%d/%d bse=%d只"
-          % (today, counters["main"][1], counters["main"][0], counters["bse"][0]))
+    C.log("sent update: %s main 5日=%d/%d bse=%d只 成交=%.0f亿"
+          % (today, counters["main"][1], counters["main"][0], counters["bse"][0],
+             sum(amt_today.values()) / 1e8))
+    save_turnover(tdays_amt)
     return save_series(days)
 
 

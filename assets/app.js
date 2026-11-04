@@ -5,9 +5,10 @@
   var C_INST = "#4f8cff", C_INDIV = "#d4a94f", C_GJS = "#b07cff";
   var charts = {};
   var state = { flowsMode: "cum", usTab: "regular", usPhase: null, usTabTouched: false,
-                usMarket: "us", sentBoard: "all", triCoef: null,
-                triCoefTouched: false, us: null, kr: null, flows: null, tri: null,
-                sent: null };
+                usMarket: "us", sentBoard: "all", turnBoard: "all", hotTab: "em",
+                triCoef: null, triCoefTouched: false,
+                us: null, kr: null, flows: null, tri: null, sent: null,
+                hot: null, turn: null };
 
   function $(id) { return document.getElementById(id); }
   function fmt(n, d) {
@@ -614,6 +615,92 @@
     b.className = "badge" + (kr.phase === "regular" ? " live" : "");
   }
 
+  /* ---------------- 7. 热股榜(多源, 共热高亮) ---------------- */
+  var HOT_SRC_CN = { em: "东方财富人气榜", ths: "同花顺热股榜(日)", tgb: "淘股吧热门研股" };
+
+  function renderHot(h) {
+    state.hot = h;
+    var src = state.hotTab || "em";
+    var rows = h[src] || [];
+    // 跨榜共现统计
+    var cnt = {};
+    ["em", "ths", "tgb"].forEach(function (s) {
+      (h[s] || []).forEach(function (r) {
+        if (r.code) cnt[r.code] = (cnt[r.code] || 0) + 1;
+      });
+    });
+    $("hot-updated").textContent = "更新时间: " + (h.updated || "--") +
+      " (A股时段每10分钟更新; " + (HOT_SRC_CN[src] || src) + ")";
+    var html = "<table class='us hot'><thead><tr><th class='rank'>#</th>" +
+      "<th class='sym'>代码</th><th class='name'>名称</th><th class='heat'>热度</th>" +
+      "<th class='price'>最新价</th><th class='pct'>涨跌幅</th><th class='bar-cell'>共热</th>" +
+      "</tr></thead><tbody>";
+    rows.forEach(function (r, i) {
+      var n = cnt[r.code] || 1;
+      var multi = n >= 2;
+      var heat = "";
+      if (src === "em") {
+        heat = "第" + (r.rank || (i + 1)) + "名" +
+          (r.rk_chg > 0 ? " ↑" + r.rk_chg : "");
+      } else if (src === "ths") {
+        heat = r.rate >= 1e8 ? (r.rate / 1e8).toFixed(1) + "亿"
+          : (r.rate / 1e4).toFixed(0) + "万";
+      } else {
+        heat = "研股";
+      }
+      var pct = r.pct;
+      html += "<tr class='" + (multi ? "hot-multi" : "") + "'><td class='rank'>" +
+        (r.rank || (i + 1)) + "</td><td class='sym'>" + r.code + "</td><td class='name'>" +
+        (r.name || "--") + "</td><td class='heat'>" + heat + "</td><td class='price'>" +
+        (r.price !== null && r.price !== undefined ? fmt(r.price, 2) : "--") +
+        "</td><td class='pct " + (pct === null || pct === undefined ? "na" : pctClass(pct)) + "'>" +
+        (pct === null || pct === undefined ? "--" : sign(pct) + fmt(pct, 2) + "%") +
+        "</td><td class='bar-cell'>" +
+        (multi ? "<span class='hot-star'>★" + n + "榜</span>" : "") +
+        "</td></tr>";
+    });
+    html += "</tbody></table>";
+    $("hot-table").innerHTML = html;
+  }
+
+  /* ---------------- 8. 成交金额(分板块) ---------------- */
+  function renderTurn(t) {
+    state.turn = t;
+    var b = (t.boards || {})[state.turnBoard || "all"] || [];
+    var chart = charts.turn || echarts.init($("turn-chart"));
+    charts.turn = chart;
+    var n = t.dates.length;
+    var zs = n > 30 ? t.dates[n - 30] : t.dates[0];
+    chart.setOption({
+      grid: { left: 70, right: 20, top: 30, bottom: 70 },
+      tooltip: {
+        trigger: "axis",
+        backgroundColor: TIP.backgroundColor, borderColor: TIP.borderColor,
+        borderWidth: 1, confine: true,
+        textStyle: TIP.textStyle,
+        formatter: function (ps) {
+          var p = ps[0];
+          return p.name + "<br>成交金额: <b>" + fmt(p.value, 0) + "</b> 亿元";
+        }
+      },
+      xAxis: Object.assign({}, AXIS, { type: "category", data: t.dates }),
+      yAxis: Object.assign({}, AXIS, { type: "value", scale: true,
+                                       axisLabel: { color: "#7b8496",
+                                                   formatter: "{value}" } }),
+      dataZoom: [
+        { type: "inside", startValue: zs, endValue: t.dates[n - 1] },
+        { type: "slider", height: 18, bottom: 8, startValue: zs, endValue: t.dates[n - 1] }
+      ],
+      series: [{
+        name: "成交金额", type: "line", data: b, showSymbol: false,
+        lineStyle: { color: "#39c5cf", width: 1.6 },
+        itemStyle: { color: "#39c5cf" },
+        areaStyle: { color: "rgba(57,197,207,0.10)" },
+        emphasis: { focus: "series" }
+      }]
+    }, true);
+  }
+
   function deepMerge(base, extra) {
     for (var k in extra) {
       if (extra[k] && typeof extra[k] === "object" && base[k] && typeof base[k] === "object") {
@@ -637,6 +724,8 @@
     fetchJSON("data/concentration.json").then(renderConc).catch(showErr("conc"));
     fetchJSON("data/sentiment.json").then(renderSent).catch(showErr("sent"));
     fetchJSON("data/tri_bond.json").then(renderTri).catch(showErr("tri"));
+    fetchJSON("data/turnover.json").then(renderTurn).catch(showErr("turn"));
+    fetchJSON("data/hot_stocks.json").then(renderHot).catch(showErr("hot"));
     fetchJSON("data/us_sectors.json")
       .then(function (us) { state.us = us; renderMarket(); }).catch(showErr("us"));
     fetchJSON("data/kr_stocks.json")
@@ -682,6 +771,22 @@
     if (state.sent) renderSent(state.sent);
   });
 
+  $("hot-toggle").addEventListener("click", function (e) {
+    if (e.target.tagName !== "BUTTON") return;
+    Array.prototype.forEach.call(this.children, function (b) { b.classList.remove("on"); });
+    e.target.classList.add("on");
+    state.hotTab = e.target.getAttribute("data-src");
+    if (state.hot) renderHot(state.hot);
+  });
+
+  $("turn-toggle").addEventListener("click", function (e) {
+    if (e.target.tagName !== "BUTTON") return;
+    Array.prototype.forEach.call(this.children, function (b) { b.classList.remove("on"); });
+    e.target.classList.add("on");
+    state.turnBoard = e.target.getAttribute("data-board");
+    if (state.turn) renderTurn(state.turn);
+  });
+
   $("refresh-all").addEventListener("click", function () {
     var btn = this;
     btn.disabled = true;
@@ -698,6 +803,7 @@
       .then(function (us) { state.us = us; renderMarket(); }).catch(function () {});
     fetchJSON("data/kr_stocks.json")
       .then(function (kr) { state.kr = kr; renderMarket(); }).catch(function () {});
+    fetchJSON("data/hot_stocks.json").then(renderHot).catch(function () {});
     fetchJSON("data/meta.json").then(renderMeta).catch(function () {});
   });
 
@@ -718,12 +824,13 @@
   });
 
   loadAll();
-  setInterval(function () {  // 美股/韩股每60秒自动刷新
+  setInterval(function () {  // 美股/韩股/热股 每60秒自动刷新
     fetchJSON("data/us_sectors.json")
       .then(function (us) { state.us = us; renderMarket(); }).catch(function () {});
     fetchJSON("data/kr_stocks.json")
       .then(function (kr) { state.kr = kr; renderMarket(); }).catch(function () {});
+    fetchJSON("data/hot_stocks.json").then(renderHot).catch(function () {});
     fetchJSON("data/meta.json").then(renderMeta).catch(function () {});
   }, 60000);
-  setInterval(loadAll, 30 * 60 * 1000);  // A股图表每30分钟刷新
+  setInterval(loadAll, 30 * 60 * 1000);   // A股图表每30分钟刷新
 })();

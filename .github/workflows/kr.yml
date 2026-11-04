@@ -34,5 +34,6 @@ jobs:
             echo "no data change"
           else
             git commit -m "data: 韩股更新 $(date -u +'%Y-%m-%d %H:%M') UTC"
+            git pull --rebase
             git push
           fi

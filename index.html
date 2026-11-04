@@ -79,7 +79,7 @@
   <!-- 6. 美股·韩股 -->
   <section class="card" id="sec-us">
     <div class="card-head">
-      <h2>⑥ 美股·韩股涨跌榜 <span class="since">(美股: 盘前/盘中/盘后 · 韩股: 当日涨跌)</span></h2>
+      <h2>⑥ 美股·韩股涨跌榜 <span class="since">(盘前/盘中/盘后 · 韩股当日)</span></h2>
       <div style="display:flex;gap:8px;">
         <div class="toggle" id="us-market">
           <button class="on" data-mkt="us">美股</button>
@@ -98,6 +98,37 @@
       <button data-tab="post">盘后</button>
     </div>
     <div id="us-table"></div>
+  </section>
+
+  <!-- 7. 热股榜 -->
+  <section class="card" id="sec-hot">
+    <div class="card-head">
+      <h2>⑦ 热股榜 <span class="since">(多榜共现金色高亮)</span></h2>
+      <div class="toggle" id="hot-toggle">
+        <button class="on" data-src="em">东方财富</button>
+        <button data-src="ths">同花顺</button>
+        <button data-src="tgb">淘股吧</button>
+      </div>
+    </div>
+    <div class="us-meta">
+      <div class="us-updated" id="hot-updated">--</div>
+    </div>
+    <div id="hot-table"></div>
+  </section>
+
+  <!-- 8. 成交金额 -->
+  <section class="card" id="sec-turn">
+    <div class="card-head">
+      <h2>⑧ 成交金额 <span class="since">(2005至今, 亿元)</span></h2>
+      <div class="toggle" id="turn-toggle">
+        <button class="on" data-board="all">全市场</button>
+        <button data-board="main">主板</button>
+        <button data-board="chinext">创业板</button>
+        <button data-board="star">科创板</button>
+        <button data-board="bse">北交所</button>
+      </div>
+    </div>
+    <div id="turn-chart" class="chart"></div>
   </section>
 
   <footer>
