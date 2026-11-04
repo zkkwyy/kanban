@@ -218,21 +218,111 @@ def compute_margin():
     C.log("margin: %d rows, last=%s" % (len(dates), dates[-1] if dates else "-"))
 
 
+def _bottom_label(d):
+    names = {
+        "2008": "2008金融危机", "2012": "2012熊市底", "2013": "2013钱荒底",
+        "2016": "2016熔断底", "2019": "2019大底", "2024": "2024大底",
+    }
+    y = d[:4]
+    if y in names:
+        return names[y]
+    return d[:7].replace("-", "") + "大底"
+
+
+def build_support(dates, tri, bond):
+    """隐形支撑线分析: 系统性大底检测 + k=H00300/债基 中位数校准
+    大底定义: ±60日局部最低点, 前1年内回撤>=20%, 之后1年无更低低点(允许1%),
+    且与上一底间隔>=150日(更近则保留更低者)。
+    """
+    import statistics
+    n = len(dates)
+    cand = []
+    for i in range(60, n):
+        if bond[i] is None or dates[i] < "2007-01-01":
+            continue
+        if i > n - 365:   # 右端保护: 大底需有完整365天后向数据确认(右侧未走完的不算)
+            continue
+        w0, w1 = max(0, i - 60), min(n, i + 61)
+        if tri[i] != min(tri[w0:w1]):
+            continue
+        runmax = max(tri[max(0, i - 244):i + 1])
+        if tri[i] > runmax * 0.80:      # 回撤不足20%
+            continue
+        f1 = min(n, i + 365)
+        if min(tri[i + 1:f1]) < tri[i] * 0.99:   # 之后1年有更低低点
+            continue
+        cand.append(i)
+    bottoms = []
+    for i in cand:
+        if bottoms and i - bottoms[-1] < 150:
+            if tri[i] < tri[bottoms[-1]]:
+                bottoms[-1] = i
+            continue
+        bottoms.append(i)
+    ratios = [tri[i] / bond[i] for i in bottoms if bond[i]]
+    if not ratios:
+        return None
+    k = round(statistics.median(ratios), 4)
+    devs = []
+    out_b = []
+    for i in bottoms:
+        dev = (tri[i] / (k * bond[i]) - 1) * 100
+        devs.append(abs(dev))
+        out_b.append({
+            "date": dates[i], "label": _bottom_label(dates[i]),
+            "tri": round(tri[i], 1), "dev": round(dev, 1),
+        })
+    years = (datetime.date.fromisoformat(dates[-1]) -
+             datetime.date.fromisoformat(dates[0])).days / 365.25
+    first_b = next((b for b in bond if b is not None), None)
+    cagr_tri = ((tri[-1] / tri[0]) ** (1 / years) - 1) * 100
+    cagr_bond = ((bond[-1] / first_b) ** (1 / years) - 1) * 100 if first_b else None
+    cur_dev = (tri[-1] / (k * bond[-1]) - 1) * 100 if bond[-1] else None
+    return {
+        "k": k,
+        "bottoms": out_b,
+        "bottom_count": len(out_b),
+        "avg_abs_dev": round(sum(devs) / len(devs), 1) if devs else None,
+        "cur_dev": round(cur_dev, 1) if cur_dev is not None else None,
+        "cagr_tri": round(cagr_tri, 2),
+        "cagr_bond": round(cagr_bond, 2) if cagr_bond is not None else None,
+        "years": round(years, 1),
+        "method": (
+            "隐形线=K×自建二级债基指数, K取各系统性大底当日 H00300/债基指数 的中位数; "
+            "大底判定: ±60日局部最低+前1年回撤≥20%+后1年无更低低点。"
+        ),
+    }
+
+
 def compute_tri():
     rows = C.load_json(os.path.join(C.RAW, "h00300.json")) or []
     # 债基指数若已生成则合并
     bond = C.load_json(os.path.join(C.DATA, "tri_bond.json")) or {}
+    bmap = dict(zip(bond.get("bond_dates") or [], bond.get("bond") or []))
+    dates = [r[0] for r in rows]
+    tri = [r[1] for r in rows]
+    aligned, last = [], None
+    for d in dates:
+        if d in bmap:
+            last = bmap[d]
+        aligned.append(last)
+    support = build_support(dates, tri, aligned)
+    if support:
+        C.log("support line: k=%.4f, %d bottoms, avg_dev=%.1f%%, cur_dev=%+.1f%%"
+              % (support["k"], support["bottom_count"],
+                 support["avg_abs_dev"], support["cur_dev"]))
     out = {
         "updated": C.now_str(),
-        "dates": [r[0] for r in rows],
-        "tri": [r[1] for r in rows],
+        "dates": dates,
+        "tri": tri,
         "bond": bond.get("bond") or [],
         "bond_dates": bond.get("bond_dates") or [],
+        "support": support,
         "method": (
             "沪深300全收益指数(H00300, 中证指数官网, 含分红再投资); "
             "二级债基指数为自建等权指数(全市场混合债券型二级基金日净值增长率等权合成, "
             "基期2005-01-04=1000, 存在幸存者偏差等近似); "
-            "对比系数可在页面调整, 默认1即不缩放, 两曲线同以约1000点起步。"
+            "隐形支撑线=K×二级债基指数(下方偏离度图), K由历史大底自动校准, 可在页面调整。"
         ),
     }
     C.save_json(os.path.join(C.DATA, "tri_bond.json"), out)

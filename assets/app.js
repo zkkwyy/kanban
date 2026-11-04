@@ -5,7 +5,8 @@
   var UPC = "#e5484d", DOWN = "#2fbf71";   // A股习惯: 涨红跌绿
   var C_INST = "#4f8cff", C_INDIV = "#d4a94f", C_GJS = "#b07cff";
   var charts = {};
-  var state = { flowsMode: "cum", usTab: "regular", coef: 1, us: null, flows: null };
+  var state = { flowsMode: "cum", usTab: "regular", triCoef: null,
+                triCoefTouched: false, us: null, flows: null, tri: null };
 
   function $(id) { return document.getElementById(id); }
   function fmt(n, d) {
@@ -36,6 +37,20 @@
   };
 
   /* ---------------- 1. ETF资金流 ---------------- */
+  // 事件标注(竖排文字: 多行formatter+offset, 避免相邻事件标签水平重叠)
+  function verticalMark(dateStr, text) {
+    var t = (text || "").replace(/\s+/g, "");
+    return {
+      xAxis: dateStr,
+      label: {
+        formatter: t.split("").join("\n"),
+        color: "#9aa4b8", fontSize: 11, lineHeight: 13,
+        offset: [8, t.length * 13]
+      },
+      lineStyle: { color: "#5a6478", type: "dashed" }
+    };
+  }
+
   function renderFlows(flows) {
     state.flows = flows;
     var dates = flows.dates;
@@ -69,18 +84,13 @@
           itemStyle: { color: C_INDIV } }
       ];
     }
-    // 事件标注
+    // 事件标注(竖排文字, 避免相邻事件标签重叠)
     var markLines = (flows.events || []).map(function (e) {
       var idx = dates.indexOf(e.date);
       if (idx < 0) { // 找最近的日期
         for (var i = 0; i < dates.length; i++) if (dates[i] > e.date) { idx = i; break; }
       }
-      return {
-        xAxis: idx >= 0 ? dates[idx] : e.date,
-        label: { formatter: e.text, color: "#9aa4b8", fontSize: 11,
-                 position: "insideEndTop", rotate: 0 },
-        lineStyle: { color: "#5a6478", type: "dashed" }
-      };
+      return verticalMark(idx >= 0 ? dates[idx] : e.date, e.text);
     });
     if (markLines.length && series[0]) {
       series[0].markLine = { symbol: "none", data: markLines, silent: true };
@@ -160,8 +170,9 @@
     $("margin-note").textContent = "口径: " + (m.method || "");
   }
 
-  /* ---------------- 3. 沪深300全收益 vs 0.43×二级债基 ---------------- */
+  /* ---------------- 3. 沪深300全收益 vs 隐形支撑线(K×二级债基) ---------------- */
   function renderTri(t) {
+    state.tri = t;
     var dates = t.dates, tri = t.tri;
     var bd = t.bond_dates || [], bv = t.bond || [];
     var bmap = {};
@@ -171,42 +182,141 @@
       if (bmap[dates[j]] !== undefined) last = bmap[dates[j]];
       bondAligned.push(last);
     }
-    var coef = state.coef;
-    var coefLabel = (coef === 1 ? "" : coef + " × ") + "二级债基指数";
-    var tLast = tri[tri.length - 1], bLast = bondAligned[bondAligned.length - 1];
-    var tFirst = tri[0], bFirst = null;
-    for (var k = 0; k < bondAligned.length; k++) {
-      if (bondAligned[k] !== null && bondAligned[k] !== undefined) { bFirst = bondAligned[k]; break; }
+    var sup = t.support || {};
+    if (!state.triCoefTouched) {
+      state.triCoef = sup.k || 1;
+      var ci = $("coef-input");
+      if (ci) ci.value = state.triCoef;
     }
+    var k = state.triCoef || sup.k || 1;
+    // 偏离度序列: H00300 / (k×债基) - 1
+    var dev = [];
+    for (var m = 0; m < dates.length; m++) {
+      dev.push(bondAligned[m] ? (tri[m] / (k * bondAligned[m]) - 1) * 100 : null);
+    }
+    var curDev = dev[dev.length - 1];
+    var avgDev = sup.avg_abs_dev;
+    var tLast = tri[tri.length - 1];
+    var lineLast = k * (bondAligned[bondAligned.length - 1] || 0);
+    var bottomMarks = (sup.bottoms || []).map(function (b) {
+      return verticalMark(b.date, b.label);
+    });
+    var bottomMarksPlain = (sup.bottoms || []).map(function (b) {
+      return { xAxis: b.date, lineStyle: { color: "#39425a", type: "dashed" },
+               label: { show: false } };
+    });
     var stats = ""
+      + stat("当前偏离隐形线", (curDev === null ? "--" :
+          (curDev > 0 ? "+" : "") + fmt(curDev, 1) + "%"),
+          curDev > 0 ? UPC : DOWN)
+      + stat("隐形线 K×债基指数", fmt(lineLast, 0))
       + stat("沪深300全收益", fmt(tLast, 0) + " 点", "#4f8cff")
-      + stat("全收益涨幅(2005至今)", fmt(tLast / tFirst, 2) + " 倍", tLast / tFirst >= 1 ? UPC : DOWN)
-      + stat(coefLabel, fmt((bLast || 0) * coef, 0))
-      + stat("债基指数涨幅(自建)", fmt((bLast / bFirst), 2) + " 倍", bLast / bFirst >= 1 ? UPC : DOWN);
+      + stat("大底平均偏离", avgDev != null ? "±" + fmt(avgDev, 1) + "%" : "--")
+      + stat("系统性大底", (sup.bottom_count || 0) + " 个")
+      + stat("年化(2005至今)", fmt(sup.cagr_tri, 1) + "% vs " + fmt(sup.cagr_bond, 1) + "%");
     $("tri-stats").innerHTML = stats;
 
     var chart = charts.tri || echarts.init($("tri-chart"));
     charts.tri = chart;
+    var kLabel = (Math.round(k * 10000) / 10000);
+    var kTxt = k === 1 ? "" : kLabel + " × ";
     chart.setOption({
       backgroundColor: "transparent",
-      grid: { left: 60, right: 20, top: 30, bottom: 70 },
-      tooltip: deepMerge({ trigger: "axis" }, TIP),
-      legend: { textStyle: { color: "#7b8496" }, top: 0 },
-      xAxis: deepMerge({ type: "category", data: dates }, AXIS),
-      yAxis: deepMerge({ name: "点", scale: true }, AXIS),
+      grid: [
+        { left: 60, right: 20, top: 45, height: 175 },
+        { left: 60, right: 20, top: 250, height: 105 }
+      ],
+      tooltip: deepMerge({
+        trigger: "axis",
+        formatter: function (ps) {
+          var d = ps[0].name, h = "";
+          for (var i = 0; i < ps.length; i++) {
+            var p = ps[i];
+            h += p.marker + " " + p.seriesName + ": <b>" +
+              (p.value === null || p.value === undefined ? "--" : fmt(p.value, 2)) +
+              (p.seriesName.indexOf("偏离") >= 0 ? "%" : "") + "</b><br>";
+          }
+          return d + "<br>" + h;
+        }
+      }, TIP),
+      legend: { textStyle: { color: "#7b8496" }, top: 4,
+                data: ["沪深300全收益指数", kTxt + "二级债基指数 · 隐形支撑线", "偏离度"] },
+      xAxis: [
+        deepMerge({ type: "category", gridIndex: 0, data: dates,
+                    axisLabel: { show: false }, axisTick: { show: false } }, AXIS),
+        deepMerge({ type: "category", gridIndex: 1, data: dates }, AXIS)
+      ],
+      yAxis: [
+        deepMerge({ gridIndex: 0, name: "点", scale: true }, AXIS),
+        deepMerge({ gridIndex: 1, name: "偏离%", scale: false,
+                    axisLabel: {
+                      formatter: function (v) { return (v > 0 ? "+" : "") + v + "%"; }
+                    } }, AXIS)
+      ],
       dataZoom: [
-        { type: "inside" },
-        { type: "slider", height: 18, bottom: 8, borderColor: "#2a3346",
-          textStyle: { color: "#7b8496" } }
+        { type: "inside", xAxisIndex: [0, 1] },
+        { type: "slider", height: 18, bottom: 8, xAxisIndex: [0, 1],
+          borderColor: "#2a3346", textStyle: { color: "#7b8496" } }
       ],
       series: [
-        line("沪深300全收益指数", tri, "#4f8cff"),
-        line(coefLabel + "(自建等权)",
-             bondAligned.map(function (v) { return v === null ? null : v * coef; }),
-             "#d4a94f")
+        {
+          name: "沪深300全收益指数", type: "line", data: tri,
+          showSymbol: false, xAxisIndex: 0, yAxisIndex: 0,
+          lineStyle: { color: "#4f8cff", width: 2 },
+          itemStyle: { color: "#4f8cff" },
+          emphasis: { focus: "series" },
+          markLine: { symbol: "none", data: bottomMarks, silent: true }
+        },
+        {
+          name: kTxt + "二级债基指数 · 隐形支撑线", type: "line",
+          data: bondAligned.map(function (v) { return v === null ? null : v * k; }),
+          showSymbol: false, xAxisIndex: 0, yAxisIndex: 0,
+          lineStyle: { color: "#d4a94f", width: 2, type: "solid" },
+          itemStyle: { color: "#d4a94f" },
+          emphasis: { focus: "series" }
+        },
+        {
+          name: "偏离度", type: "line", data: dev, showSymbol: false,
+          xAxisIndex: 1, yAxisIndex: 1,
+          lineStyle: { color: "#b07cff", width: 1.5 },
+          itemStyle: { color: "#b07cff" },
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: "rgba(176,124,255,0.30)" },
+              { offset: 1, color: "rgba(176,124,255,0.02)" }
+            ])
+          },
+          markLine: {
+            symbol: "none", silent: true,
+            data: (function () {
+              var md = (bottomMarksPlain || []).concat([
+                { yAxis: 0, lineStyle: { color: "#5a6478", type: "solid", width: 1 },
+                  label: { show: false } }
+              ]);
+              if (avgDev != null) {
+                md.push({ yAxis: avgDev,
+                  lineStyle: { color: "#d4a94f", type: "dashed" },
+                  label: { formatter: "大底平均偏离 +" + fmt(avgDev, 1) + "%",
+                           color: "#d4a94f", fontSize: 10, position: "insideEndTop" } });
+                md.push({ yAxis: -avgDev,
+                  lineStyle: { color: "#d4a94f", type: "dashed" },
+                  label: { show: false } });
+              }
+              return md;
+            })()
+          }
+        }
       ]
     }, true);
-    $("tri-note").textContent = "口径: " + (t.method || "");
+    var bn = (sup.bottoms || []).map(function (b) {
+      return b.label + "(" + b.date + (b.dev != null ? " " + (b.dev > 0 ? "+" : "") + b.dev + "%" : "") + ")";
+    }).join("、");
+    $("tri-note").textContent = "口径: " + (t.method || "") +
+      " 已确认大底: " + (bn || "--") + "。" +
+      " 说明: 原文0.43对应中证非纯债债基指数点位口径; 本看板为自建等权指数(基期1000), " +
+      "经大底校准的等效系数 K=" + kLabel + "。" +
+      " 大底平均偏离 " + (avgDev != null ? fmt(avgDev, 1) : "--") +
+      "%, 当前偏离 " + (curDev === null ? "--" : (curDev > 0 ? "+" : "") + fmt(curDev, 1)) + "%。";
   }
 
   /* ---------------- 4. 美股板块 ---------------- */
@@ -332,11 +442,12 @@
   $("coef-input").addEventListener("input", function () {
     var v = parseFloat(this.value);
     if (isNaN(v) || v <= 0) return;
-    state.coef = v;
+    state.triCoef = v;
+    state.triCoefTouched = true;
     clearTimeout(coefTimer);
     coefTimer = setTimeout(function () {
-      fetchJSON("data/tri_bond.json").then(renderTri).catch(function () {});
-    }, 400);
+      if (state.tri) renderTri(state.tri);
+    }, 300);
   });
 
   window.addEventListener("resize", function () {
