@@ -112,10 +112,9 @@ def update():
         C.log("no bond state, need rebuild first")
         return rebuild()
     codes = set(state.get("codes") or [])
-    today = datetime.date.today().isoformat()
     rows = C.fetch_fund_rank(ft="zq", dt="kf", pn=10000)
-    rets = []
-    nav_date = None
+    # 按净值日期分组(各基金披露进度不同, 只取当日已披露基金的等权均值)
+    by_date = {}
     for row in rows:
         p = row.split(",")
         if len(p) < 7 or p[0] not in codes:
@@ -124,28 +123,39 @@ def update():
             d, r = p[3], float(p[6])
         except (ValueError, IndexError):
             continue
-        if d == today and r == r:  # NaN过滤
-            rets.append(r)
-            nav_date = d
-    if not rets:
-        C.log("bond update: no nav for today yet (%s)" % today)
+        if r == r:  # NaN过滤
+            by_date.setdefault(d, []).append(r)
+    if not by_date:
+        C.log("bond update: no nav data from rank")
         return None
-    mean_r = sum(rets) / len(rets)
     tri = C.load_json(os.path.join(C.DATA, "tri_bond.json")) or {}
     dates = tri.get("bond_dates") or []
     values = tri.get("bond") or []
-    if dates and dates[-1] >= today:
-        C.log("bond update: already up to date (%s)" % dates[-1])
+    last = dates[-1] if dates else None
+    new_dates = sorted(d for d in by_date if d > (last or "2000-01-01"))
+    if not new_dates:
+        C.log("bond update: already up to date (%s)" % last)
         return dates, values
     idx = state.get("index_value") or (values[-1] if values else BASE_VALUE)
-    idx *= (1.0 + mean_r / 100.0)
-    dates = dates + [today]
-    values = values + [round(idx, 2)]
-    state["last_date"] = today
+    added = 0
+    for d in new_dates:
+        rets = by_date[d]
+        if len(rets) < 3:  # 当日披露样本太少, 跳过避免噪声
+            C.log("bond update: skip %s (only %d funds)" % (d, len(rets)))
+            continue
+        mean_r = sum(rets) / len(rets)
+        idx *= (1.0 + mean_r / 100.0)
+        dates = dates + [d]
+        values = values + [round(idx, 2)]
+        state["last_date"] = d
+        added += 1
+        C.log("bond update: %s mean=%.3f%% n=%d -> %.1f"
+              % (d, mean_r, len(rets), idx))
+    if not added:
+        return dates, values
     state["index_value"] = idx
     C.save_json(STATE_FP, state)
     merge_into_tri(dates, values)
-    C.log("bond update: %s mean=%.3f%% n=%d -> %.1f" % (today, mean_r, len(rets), idx))
     return dates, values
 
 
