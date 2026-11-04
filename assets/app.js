@@ -649,7 +649,7 @@
       if (r.value) xqTot += r.value;
     });
     $("hot-updated").textContent = "更新时间: " + (h.updated || "--") +
-      " (A股时段每10分钟更新; " + (HOT_SRC_CN[src] || src) + ")";
+      " (盘中每10分钟/收盘后至23点每30分钟; " + (HOT_SRC_CN[src] || src) + ")";
     var html = "<table class='us hot'><thead><tr><th class='rank'>名次</th>" +
       "<th class='sym'>品种代码</th><th class='name'>品种名称</th><th class='heat'>热度/占比</th>" +
       "<th class='price'>最新价</th><th class='pct'>涨跌幅</th><th class='bar-cell'>共热</th>" +
