@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """热股榜聚合: 东方财富人气榜 / 同花顺热股榜 / 淘股吧热门研股 / 雪球热股榜
+- 各榜只取前10名; "共热"判定也仅按各榜前10(超出前10不参与)
 - 东方财富: emappdata 人气榜(POST), 按人气值排名
 - 同花顺: dq.10jqka 热股日榜(讨论/关注度热度值)
 - 淘股吧: 首页"热门研股"栏(游资讨论)
@@ -20,7 +21,7 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common as C  # noqa: E402
 
-TOPN = 50
+TOPN = 10
 OUT = os.path.join(C.DATA, "hot_stocks.json")
 XQ_URL = ("https://stock.xueqiu.com/v5/stock/hot_stock/list.json"
           "?size=50&_type=10&type=10")
@@ -195,10 +196,10 @@ def run():
         "em": em, "ths": ths, "tgb": tgb, "xq": xq,
         "err": err,
         "method": (
-            "东方财富=人气榜TOP50(关注+成交人气); 同花顺=热股日榜TOP50(讨论热度值); "
-            "淘股吧=首页'热门研股'栏(游资/潜伏讨论); 雪球=热股榜TOP50(用户关注度值, "
+            "东方财富=人气榜前10(关注+成交人气); 同花顺=热股日榜前10(讨论热度值); "
+            "淘股吧=首页'热门研股'栏(游资/潜伏讨论); 雪球=热股榜前10(用户关注度值, "
             "与通达信'当前关注度'同口径, 附榜内热度占比); 通达信私有云无法接入。"
-            "出现在≥2个榜单的个股金色高亮(共热=资金与情绪共振)。"
+            "共热仅按各榜前10判定: 出现在≥2个榜单的个股金色高亮(资金与情绪共振)。"
         ),
     }
     C.save_json(OUT, out)
