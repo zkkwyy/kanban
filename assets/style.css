@@ -48,7 +48,24 @@ h1 { font-size: 22px; letter-spacing: 1px; }
 }
 .badge.live { color: var(--down); border-color: var(--down); }
 
-main { max-width: 1200px; margin: 0 auto; padding: 16px; }
+main {
+  max-width: 1560px;
+  margin: 0 auto;
+  padding: 16px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+main .card { margin-bottom: 0; }
+main footer { grid-column: 1 / -1; max-width: none; padding: 0; }
+
+@media (max-width: 1300px) {
+  main { display: block; }
+  main .card { margin-bottom: 18px; }
+  main footer { max-width: 1200px; margin: 0 auto; padding: 0 16px 30px; }
+}
 
 .card {
   background: var(--card);

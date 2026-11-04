@@ -226,6 +226,27 @@ def run():
     except Exception as e:  # noqa: BLE001
         C.log("conc fail: %s" % e)
 
+    # 全市场情绪(站上5/10/20日均线比例)
+    try:
+        import sentiment
+        sentiment.update(tdays)
+    except Exception as e:  # noqa: BLE001
+        C.log("sent fail: %s" % e)
+
+    # 对比线: 中证全指(万得全A等价)
+    try:
+        idx = C.fetch_market_index()
+        if idx:
+            flows["index"] = {
+                "dates": [r[0] for r in idx],
+                "values": [r[1] for r in idx],
+                "name": "中证全指(000985)",
+            }
+            C.save_json(os.path.join(C.DATA, "etf_flows.json"), flows)
+            C.log("market index synced: %d rows" % len(idx))
+    except Exception as e:  # noqa: BLE001
+        C.log("market index fail: %s" % e)
+
     # 二级债基指数
     try:
         bond_index.update()

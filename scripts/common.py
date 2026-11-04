@@ -85,10 +85,10 @@ def log(msg):
 EM_RANK = "https://fund.eastmoney.com/data/rankhandler.aspx"
 
 
-def fetch_h00300(start="20050101", end="20991231"):
-    """中证指数官网: 沪深300全收益指数 H00300 日度收盘. 返回[(date, close)]"""
+def fetch_csindex(index_code, start="20050101", end="20991231"):
+    """中证指数官网: 任意指数日度收盘. 返回[(date, close)]"""
     url = "https://www.csindex.com.cn/csindex-home/perf/index-perf"
-    j = get_json(url, params={"indexCode": "H00300", "startDate": start,
+    j = get_json(url, params={"indexCode": index_code, "startDate": start,
                               "endDate": end},
                  headers={"Referer": "https://www.csindex.com.cn/"})
     out = []
@@ -97,6 +97,19 @@ def fetch_h00300(start="20050101", end="20991231"):
         if d and c is not None:
             out.append((d[:4] + "-" + d[4:6] + "-" + d[6:], float(c)))
     return out
+
+
+def fetch_market_index(start="20200101", end="20991231"):
+    """中证全指 000985 (万得全A的免费等价口径): [(date, close)], 存raw"""
+    rows = fetch_csindex("000985", start, end)
+    if rows:
+        save_json(os.path.join(RAW, "csi_all.json"), rows)
+    return rows
+
+
+def fetch_h00300(start="20050101", end="20991231"):
+    """中证指数官网: 沪深300全收益指数 H00300 日度收盘. 返回[(date, close)]"""
+    return fetch_csindex("H00300", start, end)
 
 
 def fetch_sse_etf_shares(date):

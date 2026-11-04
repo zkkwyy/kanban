@@ -118,9 +118,12 @@ def build_series(days):
     cur = valid[-1] if valid else None
     med = None
     pctl = None
+    overheat = None
     if valid and cur is not None:
-        med = round(sorted(valid)[len(valid) // 2], 1)
+        vs = sorted(valid)
+        med = round(vs[len(vs) // 2], 1)
         pctl = round(sum(1 for v in valid if v <= cur) / len(valid) * 100, 1)
+        overheat = round(vs[int(0.8 * (len(vs) - 1))], 1)   # 历史80%分位=过热线
     return {
         "updated": C.now_str(),
         "dates": dates,
@@ -130,11 +133,13 @@ def build_series(days):
         "cur": cur,
         "median": med,
         "pctile": pctl,
+        "overheat": overheat,
         "share": SHARE,
         "method": (
             "成交集中度=当日成交额前5%个股(按数量, 剔除停牌)合计成交额占全市场成交额的百分比; "
             "数据为东财全A股日度成交额(沪深主板/创业板/科创板, 不含北交所); "
-            "历史回填仅含当前上市公司(存在幸存者偏差), 含MA20均线。"
+            "历史回填仅含当前上市公司(存在幸存者偏差), 含MA20均线; "
+            "过热线=2005年以来80%历史分位, 高于该线代表成交过度向少数个股集中。"
         ),
     }
 

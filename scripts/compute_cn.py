@@ -178,6 +178,18 @@ def compute_flows():
         "delisted_sample": delisted[:20],
         "listed_sample": listed[:20],
     }
+    # 对比线: 中证全指(万得全A的免费等价口径)
+    try:
+        idx = C.fetch_market_index()
+        if idx:
+            flows["index"] = {
+                "dates": [r[0] for r in idx],
+                "values": [r[1] for r in idx],
+                "name": "中证全指(000985)",
+            }
+            flows["method"] += " 对比线为中证全指(000985, 万得全A的免费等价口径)。"
+    except Exception as e:  # noqa: BLE001
+        C.log("market index fail: %s" % e)
     C.save_json(os.path.join(C.DATA, "etf_flows.json"), flows)
     # 增量更新所需状态
     C.save_json(os.path.join(C.STATE, "etf_state.json"), {

@@ -5,8 +5,8 @@
   var UPC = "#e5484d", DOWN = "#2fbf71";   // A股习惯: 涨红跌绿
   var C_INST = "#4f8cff", C_INDIV = "#d4a94f", C_GJS = "#b07cff";
   var charts = {};
-  var state = { flowsMode: "cum", usTab: "regular", triCoef: null,
-                triCoefTouched: false, us: null, flows: null, tri: null };
+  var state = { flowsMode: "cum", usTab: "regular", usPhase: null, usTabTouched: false,
+                triCoef: null, triCoefTouched: false, us: null, flows: null, tri: null };
 
   function $(id) { return document.getElementById(id); }
   function fmt(n, d) {
@@ -59,16 +59,43 @@
     (g.months || []).forEach(function (m, i) { gjsMap[m] = (g.values || [])[i]; });
     var gjsAligned = dates.map(function (d) { return gjsMap[d.slice(0, 7)]; });
     var inst = flows.inst_cum, indiv = flows.indiv_cum;
+    // 对比线: 中证全指(万得全A的免费等价口径), 前向填充对齐到flows日期
+    var idxAligned = null, idxLast = null, idxChg = null;
+    var fi = flows.index;
+    if (fi && fi.dates && fi.dates.length) {
+      var imap = {};
+      fi.dates.forEach(function (d, i) { imap[d] = fi.values[i]; });
+      idxLast = null;
+      idxAligned = dates.map(function (d) {
+        if (imap[d] !== undefined) idxLast = imap[d];
+        return idxLast;
+      });
+      if (idxLast && fi.values[0]) {
+        idxChg = (idxLast / fi.values[0] - 1) * 100;
+      }
+    }
     var st = $("flows-stats");
     st.innerHTML = ""
       + stat("机构累计净申购(含国家队)", fmt(inst[inst.length - 1], 0) + " 亿", C_INST)
       + stat("个人累计净申购", fmt(indiv[indiv.length - 1], 0) + " 亿", C_INDIV)
       + stat("国家队持有ETF市值·估算", fmt(gjsAligned[gjsAligned.length - 1], 0) + " 亿", C_GJS)
+      + (idxLast ? stat("中证全指(万得全A口径)", fmt(idxLast, 0) + " 点" +
+          (idxChg !== null ? " (" + sign(idxChg) + fmt(idxChg, 1) + "%)" : ""), "#aab3c5") : "")
       + stat("统计范围", "A股宽基ETF " + (flows.universe_count || 0) + " 只");
 
     var chart = charts.flows || echarts.init($("flows-chart"));
     charts.flows = chart;
     var mode = state.flowsMode;
+    var idxSeries = null;
+    if (idxAligned) {
+      idxSeries = {
+        name: "中证全指(右轴)", type: "line", yAxisIndex: 1, data: idxAligned,
+        showSymbol: false, connectNulls: true,
+        lineStyle: { color: "#8a93a6", width: 1.5, opacity: 0.9 },
+        itemStyle: { color: "#8a93a6" },
+        emphasis: { focus: "series" }
+      };
+    }
     var series;
     if (mode === "cum") {
       series = [
@@ -76,6 +103,7 @@
         line("个人累计净申购", indiv, C_INDIV),
         line("国家队(汇金)持有ETF市值·估算", gjsAligned, C_GJS, true)
       ];
+      if (idxSeries) series.push(idxSeries);
     } else {
       series = [
         { name: "机构日净申购", type: "bar", stack: "f", data: flows.daily_inst,
@@ -83,6 +111,7 @@
         { name: "个人日净申购", type: "bar", stack: "f", data: flows.daily_indiv,
           itemStyle: { color: C_INDIV } }
       ];
+      if (idxSeries) series.push(idxSeries);
     }
     // 事件标注(竖排文字, 避免相邻事件标签重叠)
     var markLines = (flows.events || []).map(function (e) {
@@ -97,11 +126,28 @@
     }
     chart.setOption({
       backgroundColor: "transparent",
-      grid: { left: 60, right: 20, top: 30, bottom: 70 },
-      tooltip: deepMerge({ trigger: "axis" }, TIP),
+      grid: { left: 60, right: idxSeries ? 56 : 20, top: 30, bottom: 70 },
+      tooltip: deepMerge({
+        trigger: "axis",
+        formatter: function (ps) {
+          var h = ps[0].name + "<br>";
+          for (var i = 0; i < ps.length; i++) {
+            var p = ps[i];
+            var isIdx = p.seriesName.indexOf("中证全指") >= 0;
+            h += p.marker + " " + p.seriesName + ": <b>" +
+                 (p.value === null || p.value === undefined ? "--" : fmt(p.value, isIdx ? 0 : 1)) +
+                 (isIdx ? " 点" : " 亿") + "</b><br>";
+          }
+          return h;
+        }
+      }, TIP),
       legend: { textStyle: { color: "#7b8496" }, top: 0 },
       xAxis: deepMerge({ type: "category", data: dates }, AXIS),
-      yAxis: deepMerge({ name: "亿元", scale: true }, AXIS),
+      yAxis: [
+        deepMerge({ name: "亿元", scale: true }, AXIS),
+        deepMerge({ name: "点位", scale: true, position: "right",
+                    splitLine: { show: false } }, AXIS)
+      ],
       dataZoom: [
         { type: "inside" },
         { type: "slider", height: 18, bottom: 8, borderColor: "#2a3346",
@@ -173,9 +219,13 @@
   /* ---------------- 3. A股成交集中度 ---------------- */
   function renderConc(c) {
     var cur = c.cur, ma = c.ma20 ? c.ma20[c.ma20.length - 1] : null;
+    var oh = c.overheat;
+    var overheated = oh != null && cur != null && cur > oh;
     $("conc-stats").innerHTML = ""
       + stat("当前集中度", fmt(cur, 1) + "%", "#39c5cf")
       + stat("MA20", fmt(ma, 1) + "%", "#d4a94f")
+      + stat("过热判定", overheated ? "过热 ↑" : "未过热",
+             overheated ? UPC : "#d7dde8")
       + stat("历史中位数", fmt(c.median, 1) + "%")
       + stat("历史分位", fmt(c.pctile, 0) + "%",
              (c.pctile >= 80 || c.pctile <= 20) ? UPC : "#d7dde8")
@@ -219,7 +269,16 @@
               { offset: 0, color: "rgba(57,197,207,0.25)" },
               { offset: 1, color: "rgba(57,197,207,0.02)" }
             ])
-          }
+          },
+          markLine: (oh != null ? {
+            symbol: "none", silent: true,
+            data: [{
+              yAxis: oh,
+              lineStyle: { color: "#e5484d", type: "dashed", width: 1.5 },
+              label: { formatter: "过热线(历史80%分位) " + fmt(oh, 1) + "%",
+                       color: "#e5484d", fontSize: 10, position: "insideEndTop" }
+            }]
+          } : undefined)
         },
         {
           name: "MA20", type: "line", data: c.ma20, showSymbol: false,
@@ -232,7 +291,88 @@
       " 集中度越高代表成交越向少数个股(龙头/抱团股)集中, 市场宽度越窄; 反之为普涨普跌的宽市场。";
   }
 
-  /* ---------------- 4. 沪深300全收益 vs 隐形支撑线(K×二级债基) ---------------- */
+  /* ---------------- 4. 全市场情绪(站上均线比例) ---------------- */
+  function renderSent(s) {
+    var cur5 = s.cur5, cur10 = s.cur10, cur20 = s.cur20;
+    var verdict, vColor;
+    if (cur20 >= 80) { verdict = "超买"; vColor = UPC; }
+    else if (cur20 <= 20) { verdict = "超卖"; vColor = DOWN; }
+    else { verdict = "中性"; vColor = "#d7dde8"; }
+    $("sent-stats").innerHTML = ""
+      + stat("站上5日均线", fmt(cur5, 1) + "%", "#e5484d")
+      + stat("站上10日均线", fmt(cur10, 1) + "%", "#d4a94f")
+      + stat("站上20日均线", fmt(cur20, 1) + "%", "#4f8cff")
+      + stat("情绪判读", verdict, vColor)
+      + stat("活跃个股", fmt(s.n_stocks[s.n_stocks.length - 1], 0) + " 只");
+    var chart = charts.sent || echarts.init($("sent-chart"));
+    charts.sent = chart;
+    chart.setOption({
+      backgroundColor: "transparent",
+      grid: { left: 60, right: 20, top: 30, bottom: 70 },
+      tooltip: deepMerge({
+        trigger: "axis",
+        formatter: function (ps) {
+          var h = ps[0].name + "<br>";
+          for (var i = 0; i < ps.length; i++) {
+            var p = ps[i];
+            h += p.marker + " " + p.seriesName + ": <b>" +
+                 (p.value === null || p.value === undefined ? "--" : fmt(p.value, 1)) +
+                 "%</b><br>";
+          }
+          return h;
+        }
+      }, TIP),
+      legend: { textStyle: { color: "#7b8496" }, top: 0 },
+      xAxis: deepMerge({ type: "category", data: s.dates }, AXIS),
+      yAxis: deepMerge({
+        name: "%", min: 0, max: 100,
+        axisLabel: { formatter: function (v) { return v + "%"; } }
+      }, AXIS),
+      dataZoom: [
+        { type: "inside" },
+        { type: "slider", height: 18, bottom: 8, borderColor: "#2a3346",
+          textStyle: { color: "#7b8496" } }
+      ],
+      series: [
+        {
+          name: "站上5日线", type: "line", data: s.above5, showSymbol: false,
+          lineStyle: { color: "#e5484d", width: 1.5 },
+          itemStyle: { color: "#e5484d" },
+          emphasis: { focus: "series" },
+          markLine: {
+            symbol: "none", silent: true,
+            data: [
+              { yAxis: 80, lineStyle: { color: "#5a6478", type: "dashed" },
+                label: { formatter: "超买 80%", color: "#7b8496", fontSize: 10,
+                         position: "insideEndTop" } },
+              { yAxis: 50, lineStyle: { color: "#39425a", type: "solid", width: 1 },
+                label: { formatter: "中位 50%", color: "#7b8496", fontSize: 10,
+                         position: "insideEndTop" } },
+              { yAxis: 20, lineStyle: { color: "#5a6478", type: "dashed" },
+                label: { formatter: "超卖 20%", color: "#7b8496", fontSize: 10,
+                         position: "insideStartTop" } }
+            ]
+          }
+        },
+        {
+          name: "站上10日线", type: "line", data: s.above10, showSymbol: false,
+          lineStyle: { color: "#d4a94f", width: 1.5 },
+          itemStyle: { color: "#d4a94f" },
+          emphasis: { focus: "series" }
+        },
+        {
+          name: "站上20日线", type: "line", data: s.above20, showSymbol: false,
+          lineStyle: { color: "#4f8cff", width: 2 },
+          itemStyle: { color: "#4f8cff" },
+          emphasis: { focus: "series" }
+        }
+      ]
+    }, true);
+    $("sent-note").textContent = "口径: " + (s.method || "") +
+      " 比例高=普遍站上均线(强势/超买), 低=普遍跌破(弱势/超卖); 三线分化时市场处于结构切换期。";
+  }
+
+  /* ---------------- 5. 沪深300全收益 vs 隐形支撑线(K×二级债基) ---------------- */
   function renderTri(t) {
     state.tri = t;
     var dates = t.dates, tri = t.tri;
@@ -381,10 +521,32 @@
       "%, 当前偏离 " + (curDev === null ? "--" : (curDev > 0 ? "+" : "") + fmt(curDev, 1)) + "%。";
   }
 
-  /* ---------------- 4. 美股板块 ---------------- */
+  /* ---------------- 6. 美股板块 ---------------- */
   var PHASE_CN = { pre: "盘前", regular: "盘中", post: "盘后", closed: "休市" };
+  var PHASE_TAB = { pre: "pre", regular: "regular", post: "post", closed: "post" };
+  function syncUsToggle() {
+    var box = $("us-toggle");
+    if (!box) return;
+    Array.prototype.forEach.call(box.children, function (b) {
+      if (b.tagName !== "BUTTON") return;
+      b.classList.toggle("on", b.getAttribute("data-tab") === state.usTab);
+    });
+  }
   function renderUS(us) {
     state.us = us;
+    // 默认跟随最新阶段: 阶段变化时自动切到对应tab(手动选择保留到下次阶段切换)
+    if (state.usPhase !== us.phase) {
+      state.usPhase = us.phase;
+      state.usTabTouched = false;
+      if (PHASE_TAB[us.phase]) state.usTab = PHASE_TAB[us.phase];
+      // 休市且无盘后数据时回退到盘中
+      if (us.phase === "closed") {
+        var anyPost = (us.rows || []).some(function (r) {
+          return r.post !== null && r.post !== undefined;
+        });
+        if (!anyPost) state.usTab = "regular";
+      }
+    }
     $("us-updated").textContent = "更新时间: " + (us.updated_ny || us.updated) +
       " (纽约时间, 每10分钟自动更新)";
     var chips = $("us-chips");
@@ -394,6 +556,7 @@
           " " + pctHTML(r[state.usTab === "pre" ? "pre" : (state.usTab === "regular" ? "regular" : "post")]) + "</span>";
       }).join("");
     renderUSTable(us);
+    syncUsToggle();
     $("us-note").textContent = "口径: " + (us.method || "");
     var b = $("badge-us-phase");
     b.textContent = "美股" + (PHASE_CN[us.phase] || us.phase);
@@ -468,6 +631,7 @@
     fetchJSON("data/etf_flows.json").then(renderFlows).catch(showErr("flows"));
     fetchJSON("data/margin.json").then(renderMargin).catch(showErr("margin"));
     fetchJSON("data/concentration.json").then(renderConc).catch(showErr("conc"));
+    fetchJSON("data/sentiment.json").then(renderSent).catch(showErr("sent"));
     fetchJSON("data/tri_bond.json").then(renderTri).catch(showErr("tri"));
     fetchJSON("data/us_sectors.json").then(renderUS).catch(showErr("us"));
     fetchJSON("data/meta.json").then(renderMeta).catch(function () {});
@@ -493,6 +657,7 @@
     Array.prototype.forEach.call(this.children, function (b) { b.classList.remove("on"); });
     e.target.classList.add("on");
     state.usTab = e.target.getAttribute("data-tab");
+    state.usTabTouched = true;   // 手动选择: 保留直到下次阶段切换
     if (state.us) { renderUS(state.us); }
   });
 
