@@ -5,7 +5,7 @@
   var UPC = "#e5484d", DOWN = "#2fbf71";   // A股习惯: 涨红跌绿
   var C_INST = "#4f8cff", C_INDIV = "#d4a94f", C_GJS = "#b07cff";
   var charts = {};
-  var state = { flowsMode: "cum", usTab: "regular", coef: 0.43, us: null, flows: null };
+  var state = { flowsMode: "cum", usTab: "regular", coef: 1, us: null, flows: null };
 
   function $(id) { return document.getElementById(id); }
   function fmt(n, d) {
@@ -172,6 +172,7 @@
       bondAligned.push(last);
     }
     var coef = state.coef;
+    var coefLabel = (coef === 1 ? "" : coef + " × ") + "二级债基指数";
     var tLast = tri[tri.length - 1], bLast = bondAligned[bondAligned.length - 1];
     var tFirst = tri[0], bFirst = null;
     for (var k = 0; k < bondAligned.length; k++) {
@@ -180,7 +181,7 @@
     var stats = ""
       + stat("沪深300全收益", fmt(tLast, 0) + " 点", "#4f8cff")
       + stat("全收益涨幅(2005至今)", fmt(tLast / tFirst, 2) + " 倍", tLast / tFirst >= 1 ? UPC : DOWN)
-      + stat(coef + "×二级债基指数", fmt((bLast || 0) * coef, 0))
+      + stat(coefLabel, fmt((bLast || 0) * coef, 0))
       + stat("债基指数涨幅(自建)", fmt((bLast / bFirst), 2) + " 倍", bLast / bFirst >= 1 ? UPC : DOWN);
     $("tri-stats").innerHTML = stats;
 
@@ -200,7 +201,7 @@
       ],
       series: [
         line("沪深300全收益指数", tri, "#4f8cff"),
-        line(coef + " × 二级债基指数(自建等权)",
+        line(coefLabel + "(自建等权)",
              bondAligned.map(function (v) { return v === null ? null : v * coef; }),
              "#d4a94f")
       ]
