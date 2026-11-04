@@ -1,0 +1,38 @@
+name: 韩股更新
+on:
+  schedule:
+    # KRX时段: 首尔9:00-15:30 = 北京8:00-14:30 = UTC 0:00-6:30
+    - cron: "*/10 0-7 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kr-update
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 安装依赖
+        run: pip install tzdata
+      - name: 抓取韩股数据
+        run: python scripts/kr_stocks.py
+      - name: 提交数据变更
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "no data change"
+          else
+            git commit -m "data: 韩股更新 $(date -u +'%Y-%m-%d %H:%M') UTC"
+            git push
+          fi

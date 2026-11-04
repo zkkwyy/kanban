@@ -2,11 +2,12 @@
 (function () {
   "use strict";
 
-  var UPC = "#e5484d", DOWN = "#2fbf71";   // A股习惯: 涨红跌绿
   var C_INST = "#4f8cff", C_INDIV = "#d4a94f", C_GJS = "#b07cff";
   var charts = {};
   var state = { flowsMode: "cum", usTab: "regular", usPhase: null, usTabTouched: false,
-                triCoef: null, triCoefTouched: false, us: null, flows: null, tri: null };
+                usMarket: "us", sentBoard: "all", triCoef: null,
+                triCoefTouched: false, us: null, kr: null, flows: null, tri: null,
+                sent: null };
 
   function $(id) { return document.getElementById(id); }
   function fmt(n, d) {
@@ -60,28 +61,17 @@
     var gjsAligned = dates.map(function (d) { return gjsMap[d.slice(0, 7)]; });
     var inst = flows.inst_cum, indiv = flows.indiv_cum;
     // 对比线: 中证全指(万得全A的免费等价口径), 前向填充对齐到flows日期
-    var idxAligned = null, idxLast = null, idxChg = null;
+    var idxAligned = null;
     var fi = flows.index;
     if (fi && fi.dates && fi.dates.length) {
       var imap = {};
       fi.dates.forEach(function (d, i) { imap[d] = fi.values[i]; });
-      idxLast = null;
+      var idxLast = null;
       idxAligned = dates.map(function (d) {
         if (imap[d] !== undefined) idxLast = imap[d];
         return idxLast;
       });
-      if (idxLast && fi.values[0]) {
-        idxChg = (idxLast / fi.values[0] - 1) * 100;
-      }
     }
-    var st = $("flows-stats");
-    st.innerHTML = ""
-      + stat("机构累计净申购(含国家队)", fmt(inst[inst.length - 1], 0) + " 亿", C_INST)
-      + stat("个人累计净申购", fmt(indiv[indiv.length - 1], 0) + " 亿", C_INDIV)
-      + stat("国家队持有ETF市值·估算", fmt(gjsAligned[gjsAligned.length - 1], 0) + " 亿", C_GJS)
-      + (idxLast ? stat("中证全指(万得全A口径)", fmt(idxLast, 0) + " 点" +
-          (idxChg !== null ? " (" + sign(idxChg) + fmt(idxChg, 1) + "%)" : ""), "#aab3c5") : "")
-      + stat("统计范围", "A股宽基ETF " + (flows.universe_count || 0) + " 只");
 
     var chart = charts.flows || echarts.init($("flows-chart"));
     charts.flows = chart;
@@ -169,16 +159,6 @@
   /* ---------------- 2. 融资余额 ---------------- */
   function renderMargin(m) {
     var dates = m.dates, rzye = m.rzye;
-    var last = rzye[rzye.length - 1];
-    var firstThisYear = null;
-    for (var i = 0; i < dates.length; i++) {
-      if (dates[i].slice(0, 4) === dates[dates.length - 1].slice(0, 4)) { firstThisYear = i; break; }
-    }
-    var ytd = firstThisYear !== null ? last - rzye[firstThisYear] : null;
-    $("margin-stats").innerHTML = ""
-      + stat("最新融资余额", fmt(last, 0) + " 亿元")
-      + stat("较年初", sign(ytd) + fmt(ytd, 0) + " 亿", ytd > 0 ? UPC : DOWN)
-      + stat("数据日期", dates[dates.length - 1]);
     var chart = charts.margin || echarts.init($("margin-chart"));
     charts.margin = chart;
     chart.setOption({
@@ -214,16 +194,7 @@
 
   /* ---------------- 3. A股成交集中度 ---------------- */
   function renderConc(c) {
-    var cur = c.cur, ma = c.ma20 ? c.ma20[c.ma20.length - 1] : null;
     var oh = c.overheat;
-    var overheated = oh != null && ma != null && ma > oh;
-    $("conc-stats").innerHTML = ""
-      + stat("当前集中度", fmt(cur, 1) + "%", "#39c5cf")
-      + stat("MA20", fmt(ma, 1) + "%", "#d4a94f")
-      + stat("过热判定", overheated ? "过热 ↑" : "未过热",
-             overheated ? UPC : "#d7dde8")
-      + stat("历次大顶均值", oh != null ? fmt(oh, 1) + "%" : "--", "#e5484d")
-      + stat("活跃个股", fmt(c.n_stocks[c.n_stocks.length - 1], 0) + " 只");
     var chart = charts.conc || echarts.init($("conc-chart"));
     charts.conc = chart;
     var mk = (c.peaks || []).map(function (p) {
@@ -290,19 +261,10 @@
     }, true);
   }
 
-  /* ---------------- 4. 全市场情绪(站上均线比例) ---------------- */
+  /* ---------------- 4. 全市场情绪(站上均线比例, 分板块) ---------------- */
   function renderSent(s) {
-    var cur5 = s.cur5, cur10 = s.cur10, cur20 = s.cur20;
-    var verdict, vColor;
-    if (cur20 >= 80) { verdict = "超买"; vColor = UPC; }
-    else if (cur20 <= 20) { verdict = "超卖"; vColor = DOWN; }
-    else { verdict = "中性"; vColor = "#d7dde8"; }
-    $("sent-stats").innerHTML = ""
-      + stat("站上5日均线", fmt(cur5, 1) + "%", "#e5484d")
-      + stat("站上10日均线", fmt(cur10, 1) + "%", "#d4a94f")
-      + stat("站上20日均线", fmt(cur20, 1) + "%", "#4f8cff")
-      + stat("情绪判读", verdict, vColor)
-      + stat("活跃个股", fmt(s.n_stocks[s.n_stocks.length - 1], 0) + " 只");
+    state.sent = s;
+    var b = (s.boards || {})[state.sentBoard || "all"] || s.boards.all || {};
     var chart = charts.sent || echarts.init($("sent-chart"));
     charts.sent = chart;
     var sn = s.dates.length;
@@ -336,7 +298,7 @@
       ],
       series: [
         {
-          name: "站上5日线", type: "line", data: s.above5, showSymbol: false,
+          name: "站上5日线", type: "line", data: b.above5, showSymbol: false,
           lineStyle: { color: "#e5484d", width: 1.5 },
           itemStyle: { color: "#e5484d" },
           emphasis: { focus: "series" },
@@ -356,13 +318,13 @@
           }
         },
         {
-          name: "站上10日线", type: "line", data: s.above10, showSymbol: false,
+          name: "站上10日线", type: "line", data: b.above10, showSymbol: false,
           lineStyle: { color: "#d4a94f", width: 1.5 },
           itemStyle: { color: "#d4a94f" },
           emphasis: { focus: "series" }
         },
         {
-          name: "站上20日线", type: "line", data: s.above20, showSymbol: false,
+          name: "站上20日线", type: "line", data: b.above20, showSymbol: false,
           lineStyle: { color: "#4f8cff", width: 2 },
           itemStyle: { color: "#4f8cff" },
           emphasis: { focus: "series" }
@@ -397,8 +359,6 @@
     }
     var curDev = dev[dev.length - 1];
     var avgDev = sup.avg_abs_dev;
-    var tLast = tri[tri.length - 1];
-    var lineLast = k * (bondAligned[bondAligned.length - 1] || 0);
     var bottomMarks = (sup.bottoms || []).map(function (b) {
       return verticalMark(b.date, b.label);
     });
@@ -406,16 +366,6 @@
       return { xAxis: b.date, lineStyle: { color: "#39425a", type: "dashed" },
                label: { show: false } };
     });
-    var stats = ""
-      + stat("当前偏离隐形线", (curDev === null ? "--" :
-          (curDev > 0 ? "+" : "") + fmt(curDev, 1) + "%"),
-          curDev > 0 ? UPC : DOWN)
-      + stat("隐形线 K×债基指数", fmt(lineLast, 0))
-      + stat("沪深300全收益", fmt(tLast, 0) + " 点", "#4f8cff")
-      + stat("大底平均偏离", avgDev != null ? "±" + fmt(avgDev, 1) + "%" : "--")
-      + stat("系统性大底", (sup.bottom_count || 0) + " 个")
-      + stat("年化(2005至今)", fmt(sup.cagr_tri, 1) + "% vs " + fmt(sup.cagr_bond, 1) + "%");
-    $("tri-stats").innerHTML = stats;
 
     var chart = charts.tri || echarts.init($("tri-chart"));
     charts.tri = chart;
@@ -512,9 +462,10 @@
   }
 
 
-  /* ---------------- 6. 美股板块 ---------------- */
+  /* ---------------- 6. 美股·韩股涨跌榜 ---------------- */
   var PHASE_CN = { pre: "盘前", regular: "盘中", post: "盘后", closed: "休市" };
   var PHASE_TAB = { pre: "pre", regular: "regular", post: "post", closed: "post" };
+  var KR_PHASE_CN = { regular: "盘中", closed: "休市" };
   function syncUsToggle() {
     var box = $("us-toggle");
     if (!box) return;
@@ -523,8 +474,28 @@
       b.classList.toggle("on", b.getAttribute("data-tab") === state.usTab);
     });
   }
+  function syncMarketToggle() {
+    var box = $("us-market");
+    if (!box) return;
+    Array.prototype.forEach.call(box.children, function (b) {
+      if (b.tagName !== "BUTTON") return;
+      b.classList.toggle("on", b.getAttribute("data-mkt") === state.usMarket);
+    });
+  }
+  function renderMarket() {
+    var phaseToggle = $("us-toggle");
+    if (state.usMarket === "kr") {
+      if (phaseToggle) phaseToggle.style.display = "none";
+      if (state.kr) renderKR(state.kr);
+    } else {
+      if (phaseToggle) phaseToggle.style.display = "";
+      if (state.us) renderUS(state.us);
+    }
+    syncMarketToggle();
+  }
   function renderUS(us) {
     state.us = us;
+    if (state.usMarket === "kr") return;   // 当前展示韩股, 缓存数据即可
     // 默认跟随最新阶段: 阶段变化时自动切到对应tab(手动选择保留到下次阶段切换)
     if (state.usPhase !== us.phase) {
       state.usPhase = us.phase;
@@ -595,9 +566,52 @@
     $("us-table").innerHTML = html;
   }
 
-  function stat(k, v, color) {
-    return "<div class='stat'><div class='k'>" + k + "</div><div class='v'" +
-      (color ? " style='color:" + color + "'" : "") + ">" + v + "</div></div>";
+  function renderKR(kr) {
+    state.kr = kr;
+    if (state.usMarket !== "kr") return;   // 当前展示美股, 仅缓存
+    $("us-updated").textContent = "更新时间: " + (kr.updated_kst || kr.updated) +
+      " (首尔时间, 盘中每10分钟更新)";
+    var chips = $("us-chips");
+    chips.innerHTML = (kr.rows || []).filter(function (r) { return r.kind === "index"; })
+      .map(function (r) {
+        return "<span class='chip'><span class='sym'>" + r.sym.replace("^", "") +
+          "</span>" + r.cn + " " + pctHTML(r.pct) + "</span>";
+      }).join("");
+    var rows = (kr.rows || []).filter(function (r) { return r.kind !== "index"; });
+    rows.sort(function (a, b) {
+      var av = a.pct, bv = b.pct;
+      if (av === null || av === undefined) av = -1e9;
+      if (bv === null || bv === undefined) bv = -1e9;
+      return bv - av;
+    });
+    var maxAbs = 1;
+    rows.forEach(function (r) {
+      if (r.pct !== undefined && r.pct !== null) maxAbs = Math.max(maxAbs, Math.abs(r.pct));
+    });
+    var html = "<table class='us'><thead><tr><th class='rank'>#</th><th class='sym'>代码</th>" +
+      "<th class='name'>名称</th><th class='pct'>当日涨跌幅</th>" +
+      "<th class='price'>最新价(韩元)</th><th class='bar-cell'>幅度</th></tr></thead><tbody>";
+    rows.forEach(function (r, i) {
+      var v = r.pct;
+      var bar = "";
+      if (v !== undefined && v !== null) {
+        var w = Math.min(50, Math.abs(v) / maxAbs * 50);
+        bar = "<div class='bar-bg'><div class='bar-zero'></div><div class='bar " +
+          pctClass(v) + "' style='width:" + w + "%'></div></div>";
+      }
+      html += "<tr><td class='rank'>" + (i + 1) + "</td><td class='sym'>" +
+        r.sym.replace(".KS", "") + "</td><td class='name'>" + r.cn +
+        "</td><td class='pct " + (v === undefined || v === null ? "na" : pctClass(v)) + "'>" +
+        (v === undefined || v === null ? "无数据" : sign(v) + fmt(v, 2) + "%") +
+        "</td><td class='price'>" +
+        (r.price !== undefined && r.price !== null ? fmt(r.price, 0) : "--") +
+        "</td><td class='bar-cell'>" + bar + "</td></tr>";
+    });
+    html += "</tbody></table>";
+    $("us-table").innerHTML = html;
+    var b = $("badge-us-phase");
+    b.textContent = "韩股" + (KR_PHASE_CN[kr.phase] || kr.phase);
+    b.className = "badge" + (kr.phase === "regular" ? " live" : "");
   }
 
   function deepMerge(base, extra) {
@@ -623,7 +637,10 @@
     fetchJSON("data/concentration.json").then(renderConc).catch(showErr("conc"));
     fetchJSON("data/sentiment.json").then(renderSent).catch(showErr("sent"));
     fetchJSON("data/tri_bond.json").then(renderTri).catch(showErr("tri"));
-    fetchJSON("data/us_sectors.json").then(renderUS).catch(showErr("us"));
+    fetchJSON("data/us_sectors.json")
+      .then(function (us) { state.us = us; renderMarket(); }).catch(showErr("us"));
+    fetchJSON("data/kr_stocks.json")
+      .then(function (kr) { state.kr = kr; renderMarket(); }).catch(showErr("kr"));
     fetchJSON("data/meta.json").then(renderMeta).catch(function () {});
   }
 
@@ -651,8 +668,36 @@
     if (state.us) { renderUS(state.us); }
   });
 
+  $("us-market").addEventListener("click", function (e) {
+    if (e.target.tagName !== "BUTTON") return;
+    state.usMarket = e.target.getAttribute("data-mkt");
+    renderMarket();
+  });
+
+  $("sent-toggle").addEventListener("click", function (e) {
+    if (e.target.tagName !== "BUTTON") return;
+    Array.prototype.forEach.call(this.children, function (b) { b.classList.remove("on"); });
+    e.target.classList.add("on");
+    state.sentBoard = e.target.getAttribute("data-board");
+    if (state.sent) renderSent(state.sent);
+  });
+
+  $("refresh-all").addEventListener("click", function () {
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = "刷新中…";
+    loadAll();
+    setTimeout(function () {
+      btn.disabled = false;
+      btn.textContent = "↻ 刷新全部";
+    }, 2000);
+  });
+
   $("us-refresh").addEventListener("click", function () {
-    fetchJSON("data/us_sectors.json").then(renderUS).catch(function () {});
+    fetchJSON("data/us_sectors.json")
+      .then(function (us) { state.us = us; renderMarket(); }).catch(function () {});
+    fetchJSON("data/kr_stocks.json")
+      .then(function (kr) { state.kr = kr; renderMarket(); }).catch(function () {});
     fetchJSON("data/meta.json").then(renderMeta).catch(function () {});
   });
 
@@ -673,8 +718,11 @@
   });
 
   loadAll();
-  setInterval(function () {  // 美股每60秒自动刷新
-    fetchJSON("data/us_sectors.json").then(renderUS).catch(function () {});
+  setInterval(function () {  // 美股/韩股每60秒自动刷新
+    fetchJSON("data/us_sectors.json")
+      .then(function (us) { state.us = us; renderMarket(); }).catch(function () {});
+    fetchJSON("data/kr_stocks.json")
+      .then(function (kr) { state.kr = kr; renderMarket(); }).catch(function () {});
     fetchJSON("data/meta.json").then(renderMeta).catch(function () {});
   }, 60000);
   setInterval(loadAll, 30 * 60 * 1000);  // A股图表每30分钟刷新

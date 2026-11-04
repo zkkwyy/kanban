@@ -1,22 +1,23 @@
 # -*- coding: utf-8 -*-
-"""全市场情绪: 全A股站上5/10/20日均线的比例(%)
-- backfill: 全A股 -> 个股日K线收盘价(全史) -> 逐日统计 -> data/raw/sent_days/
+"""全市场情绪: 全A股站上5/10/20日均线的比例(%) — 分板块
+板块: 全市场(all=四板块合计) / 主板(main) / 创业板(chinext) / 科创板(star) / 北交所(bse)
+- backfill: 全A股+北交所 -> 个股日K线收盘价 -> 逐日分板块统计 -> data/raw/sent_days/
             + 增量状态(每股最近20个收盘价) data/state/sent_state.json
-- update:   收盘后全市场快照(最新价) + 状态 -> 当日比例(首跑追加)
+- update:   收盘后全市场快照(最新价) + 状态 -> 当日分板块统计
 - 输出: data/sentiment.json
 口径: 个股按自身交易日计算均线(停牌股当日不计入分母); 次新股不足窗口天数不计入
-      对应窗口分母; 沪深A股(不含北交所); 历史回填仅含当前上市公司。
+      对应窗口分母; 老三板/两网(810xxx等)剔除。
 用法: python sentiment.py backfill|update
 """
 import datetime
 import os
 import pickle
+import re
 import sys
 from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common as C  # noqa: E402
-import concentration  # noqa: E402  (复用fetch_universe)
 
 DAYS_DIR = os.path.join(C.RAW, "sent_days")
 CKPT = os.path.join(C.RAW, "sent_ckpt.pkl")
@@ -24,6 +25,46 @@ STATE = os.path.join(C.STATE, "sent_state.json")
 OUT = os.path.join(C.DATA, "sentiment.json")
 WINDOWS = (5, 10, 20)
 START = "2005-01-01"
+BOARDS = ("main", "chinext", "star", "bse")
+FS = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048"   # 沪深A股+北交所(含老三板需过滤)
+
+
+def board_of(code):
+    """main主板(60/00) / chinext创业板(30) / star科创板(68) / bse北交所(43/82/83/87/92)
+    返回None=剔除(老三板810xxx等)"""
+    if re.match(r"^(43|82|83|87|92)", code):
+        return "bse"
+    if code.startswith("60") or code.startswith("00"):
+        return "main"
+    if code.startswith("30"):
+        return "chinext"
+    if code.startswith("68"):
+        return "star"
+    return None
+
+
+def fetch_universe():
+    """{code: name} 全A股+北交所(剔除老三板)"""
+    out, pn = {}, 1
+    while True:
+        j = C.get_json("https://push2.eastmoney.com/api/qt/clist/get", params={
+            "pn": str(pn), "pz": "100", "po": "0", "np": "1", "fltt": "2", "invt": "2",
+            "fs": FS, "fields": "f12,f14",
+        })
+        rows = (j.get("data") or {}).get("diff") or []
+        if not rows:
+            break
+        for r in rows:
+            c = str(r["f12"])
+            if board_of(c):
+                out[c] = r.get("f14") or ""
+        if len(out) >= int((j.get("data") or {}).get("total") or 0):
+            break
+        pn += 1
+        if pn > 90:
+            break
+    C.log("sent universe: %d stocks" % len(out))
+    return out
 
 
 def _stock_flags(rows):
@@ -55,12 +96,12 @@ def _stock_flags(rows):
 
 
 def fetch_snapshot_prices():
-    """收盘后全市场最新价: 返回[(code, price), ...] 仅当日有交易"""
+    """收盘后全市场(含北交所)最新价: [(code, price), ...] 仅当日有交易"""
     out, pn = [], 1
     while True:
         j = C.get_json("https://push2.eastmoney.com/api/qt/clist/get", params={
             "pn": str(pn), "pz": "100", "po": "0", "np": "1", "fltt": "2", "invt": "2",
-            "fs": concentration.FS, "fields": "f12,f2",
+            "fs": FS, "fields": "f12,f2",
         })
         rows = (j.get("data") or {}).get("diff") or []
         if not rows:
@@ -73,47 +114,47 @@ def fetch_snapshot_prices():
         if pn * 100 >= total:
             break
         pn += 1
-        if pn > 80:
+        if pn > 90:
             break
     return out
 
 
 def load_days():
-    """{date: [t5,a5,t10,a10,t20,a20]}"""
+    """{date: {board: [t5,a5,t10,a10,t20,a20]}}"""
     days = {}
     if os.path.isdir(DAYS_DIR):
         for fn in os.listdir(DAYS_DIR):
             if fn.endswith(".json"):
                 d = fn[:-5]
                 v = C.load_json(os.path.join(DAYS_DIR, fn))
-                if v and len(v) == 6:
-                    days[d] = list(v)
+                if v and isinstance(v, dict):
+                    days[d] = {b: (list(v[b]) if v.get(b) else [0] * 6)
+                               for b in BOARDS}
     return days
 
 
 def build_series(days):
     dates = sorted(days)
-    a5, a10, a20, n5 = [], [], [], []
+    names = ("all",) + BOARDS
+    agg = {b: {"above5": [], "above10": [], "above20": [], "n_stocks": []}
+           for b in names}
     for d in dates:
         v = days[d]
-        n5.append(v[0])
-        a5.append(round(v[1] / v[0] * 100, 1) if v[0] else None)
-        a10.append(round(v[3] / v[2] * 100, 1) if v[2] else None)
-        a20.append(round(v[5] / v[4] * 100, 1) if v[4] else None)
+        tot = [sum((v.get(b) or [0] * 6)[i] for b in BOARDS) for i in range(6)]
+        for name in names:
+            c = tot if name == "all" else (v.get(name) or [0] * 6)
+            agg[name]["n_stocks"].append(c[0])
+            agg[name]["above5"].append(round(c[1] / c[0] * 100, 1) if c[0] else None)
+            agg[name]["above10"].append(round(c[3] / c[2] * 100, 1) if c[2] else None)
+            agg[name]["above20"].append(round(c[5] / c[4] * 100, 1) if c[4] else None)
     return {
         "updated": C.now_str(),
         "dates": dates,
-        "above5": a5,
-        "above10": a10,
-        "above20": a20,
-        "n_stocks": n5,
-        "cur5": a5[-1] if a5 else None,
-        "cur10": a10[-1] if a10 else None,
-        "cur20": a20[-1] if a20 else None,
+        "boards": agg,
         "method": (
-            "全A股(沪深, 剔除当日停牌)收盘价站上其自身5/10/20日均线(按个股自身交易日)的比例; "
-            "次新股不足窗口天数不计入对应分母; 沪深A股不含北交所; 历史回填仅含当前上市公司。"
-            ">80%通常视为超买(普涨过热), <20%为超卖(普跌冰点)。"
+            "全A股(沪深主板/创业板/科创板/北交所, 剔除当日停牌)收盘价站上其自身"
+            "5/10/20日均线(按个股自身交易日)的比例, 分板块统计; 次新股不足窗口天数"
+            "不计入对应分母; 北交所2021年前无数据; >80%通常视为超买, <20%为超卖。"
         ),
     }
 
@@ -121,18 +162,22 @@ def build_series(days):
 def save_series(days):
     s = build_series(days)
     C.save_json(OUT, s)
-    C.log("sentiment: %d days, 5日=%.1f%% 10日=%.1f%% 20日=%.1f%%"
-          % (len(s["dates"]), s["cur5"] or -1, s["cur10"] or -1, s["cur20"] or -1))
+    last = s["dates"][-1] if s["dates"] else "-"
+    a = s["boards"]["all"]
+    C.log("sentiment: %d days, all 5日=%s%% 20日=%s%% (%s)"
+          % (len(s["dates"]),
+             a["above5"][-1] if a["above5"] else None,
+             a["above20"][-1] if a["above20"] else None, last))
     return s
 
 
 # ---------------- 回填 ----------------
 
 def backfill():
-    uni = concentration.fetch_universe()
+    uni = fetch_universe()
     codes = sorted(uni.keys())
-    days = {}
-    state = {}
+    days = {}       # date -> {board: [6]}
+    state = {}      # code -> [last 20 closes]
     done = set()
     if os.path.exists(CKPT):
         try:
@@ -141,13 +186,13 @@ def backfill():
             days = st.get("days") or {}
             state = st.get("state") or {}
             done = set(st.get("done") or [])
-            C.log("ckpt resume: %d days, %d stocks in state, %d/%d done"
+            C.log("ckpt resume: %d days, %d in state, %d/%d done"
                   % (len(days), len(state), len(done), len(codes)))
         except Exception as e:  # noqa: BLE001
             C.log("ckpt load fail: %s" % e)
     todo = [c for c in codes if c not in done]
-    # 盘中跑回填时, 今日bar未定型 -> 状态里剔除今日, 今晚update会补收盘价
     market_open = datetime.datetime.now().hour < 15
+    today = datetime.date.today().isoformat()
 
     def work(code):
         try:
@@ -160,20 +205,21 @@ def backfill():
         for code, rows in ex.map(work, todo):
             cnt += 1
             if rows:
-                flags = _stock_flags(rows)
-                for d, fl in flags:
+                bd = board_of(code)
+                for d, fl in _stock_flags(rows):
                     if d < START:
                         continue
-                    c = days.get(d)
-                    if c is None:
-                        c = days[d] = [0, 0, 0, 0, 0, 0]
+                    b = days.get(d)
+                    if b is None:
+                        b = days[d] = {x: [0] * 6 for x in BOARDS}
+                    c = b[bd]
                     for wi in range(3):
                         if fl[wi] is not None:
                             c[wi * 2] += 1
                             if fl[wi]:
                                 c[wi * 2 + 1] += 1
                 cl = [r[1] for r in rows]
-                if market_open and cl and rows[-1][0] == datetime.date.today().isoformat():
+                if market_open and cl and rows[-1][0] == today:
                     cl = cl[:-1]
                 state[code] = cl[-20:]
             done.add(code)
@@ -224,24 +270,27 @@ def update(tdays=None):
         C.log("sent update: snapshot rows=%d 异常" % len(rows))
         return None
 
-    counters = [0, 0, 0, 0, 0, 0]
+    counters = {b: [0] * 6 for b in BOARDS}
     seen = set()
     for code, price in rows:
+        bd = board_of(code)
+        if not bd:
+            continue
         cl = state.get(code)
         if cl is None:
             continue          # 新股: 稍后用K线补种
         seen.add(code)
         newc = cl + [price]
+        c = counters[bd]
         for wi, w in enumerate(WINDOWS):
             if len(newc) >= w:
                 ma = sum(newc[-w:]) / float(w)
-                counters[wi * 2] += 1
+                c[wi * 2] += 1
                 if price > ma:
-                    counters[wi * 2 + 1] += 1
+                    c[wi * 2 + 1] += 1
         state[code] = newc[-20:]
 
-    # 快照里没状态的新股/缺失股: 拉近30根K线补种再算
-    missing = [c for c, _ in rows if c not in seen]
+    missing = [c for c, _ in rows if board_of(c) and c not in seen]
 
     def seed(code):
         try:
@@ -257,22 +306,24 @@ def update(tdays=None):
                     continue
                 # 末根bar即今日(收盘后): 计数并直接用K线末端收盘价入状态
                 fl = _stock_flags(kl)[-1][1]
+                bd = board_of(code)
+                c = counters[bd]
                 for wi in range(3):
                     if fl[wi] is not None:
-                        counters[wi * 2] += 1
+                        c[wi * 2] += 1
                         if fl[wi]:
-                            counters[wi * 2 + 1] += 1
+                            c[wi * 2 + 1] += 1
                 state[code] = [r[1] for r in kl][-20:]
         C.log("sent update: seeded %d missing" % len(missing))
 
-    if not any(counters[wi * 2] for wi in range(3)):
+    if not any(counters[b][0] for b in BOARDS):
         C.log("sent update: 无有效计数")
         return None
     days[today] = counters
     C.save_json(os.path.join(DAYS_DIR, today + ".json"), counters)
     C.save_json(STATE, state)
-    C.log("sent update: %s 5日=%d/%d 20日=%d/%d"
-          % (today, counters[1], counters[0], counters[5], counters[4]))
+    C.log("sent update: %s main 5日=%d/%d bse=%d只"
+          % (today, counters["main"][1], counters["main"][0], counters["bse"][0]))
     return save_series(days)
 
 

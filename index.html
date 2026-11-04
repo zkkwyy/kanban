@@ -17,6 +17,7 @@
     <span class="badge" id="badge-cn">A股数据 --</span>
     <span class="badge" id="badge-us">美股数据 --</span>
     <span class="badge" id="badge-us-phase">--</span>
+    <button id="refresh-all" class="refresh-btn">↻ 刷新全部</button>
   </div>
 </header>
 
@@ -30,7 +31,6 @@
         <button data-mode="daily">日净申购</button>
       </div>
     </div>
-    <div class="stats" id="flows-stats"></div>
     <div id="flows-chart" class="chart"></div>
   </section>
 
@@ -39,7 +39,6 @@
     <div class="card-head">
       <h2>② 融资余额 <span class="since">(2020至今)</span></h2>
     </div>
-    <div class="stats" id="margin-stats"></div>
     <div id="margin-chart" class="chart"></div>
   </section>
 
@@ -48,7 +47,6 @@
     <div class="card-head">
       <h2>③ A股成交集中度 <span class="since">(2005至今, 前5%个股成交额占全市场比重)</span></h2>
     </div>
-    <div class="stats" id="conc-stats"></div>
     <div id="conc-chart" class="chart"></div>
   </section>
 
@@ -56,28 +54,39 @@
   <section class="card" id="sec-sent">
     <div class="card-head">
       <h2>④ 全市场情绪 <span class="since">(2005至今, 站上5/10/20日均线比例)</span></h2>
+      <div class="toggle" id="sent-toggle">
+        <button class="on" data-board="all">全市场</button>
+        <button data-board="main">主板</button>
+        <button data-board="chinext">创业板</button>
+        <button data-board="star">科创板</button>
+        <button data-board="bse">北交所</button>
+      </div>
     </div>
-    <div class="stats" id="sent-stats"></div>
     <div id="sent-chart" class="chart"></div>
   </section>
 
-  <!-- 5. 沪深300全收益 vs 隐形支撑线 -->
+  <!-- 5. 沪深300 VS 债基指数 -->
   <section class="card" id="sec-tri">
     <div class="card-head">
-      <h2>⑤ 沪深300全收益 <em>vs</em> 隐形支撑线(K×二级债基指数) <span class="since">(2005至今)</span></h2>
+      <h2>⑤ 沪深300 VS 债基指数 <span class="since">(2005至今)</span></h2>
       <div class="coef">
         <label>隐形线系数K <input type="number" id="coef-input" value="1.52" step="0.01" min="0.01" max="10"></label>
       </div>
     </div>
-    <div class="stats" id="tri-stats"></div>
     <div id="tri-chart" class="chart"></div>
   </section>
 
-  <!-- 6. 美股板块 -->
+  <!-- 6. 美股·韩股 -->
   <section class="card" id="sec-us">
     <div class="card-head">
-      <h2>⑥ 美股板块涨跌榜 <span class="since">(盘前 / 盘中 / 盘后)</span></h2>
-      <button id="us-refresh" class="refresh-btn">手动刷新</button>
+      <h2>⑥ 美股·韩股涨跌榜 <span class="since">(美股: 盘前/盘中/盘后 · 韩股: 当日涨跌)</span></h2>
+      <div style="display:flex;gap:8px;">
+        <div class="toggle" id="us-market">
+          <button class="on" data-mkt="us">美股</button>
+          <button data-mkt="kr">韩股</button>
+        </div>
+        <button id="us-refresh" class="refresh-btn">手动刷新</button>
+      </div>
     </div>
     <div class="us-meta">
       <div class="chips" id="us-chips"></div>
