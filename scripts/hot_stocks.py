@@ -1,16 +1,19 @@
 # -*- coding: utf-8 -*-
-"""热股榜聚合: 东方财富人气榜 / 同花顺热股榜 / 淘股吧热门研股
+"""热股榜聚合: 东方财富人气榜 / 同花顺热股榜 / 淘股吧热门研股 / 雪球热股榜
 - 东方财富: emappdata 人气榜(POST), 按人气值排名
 - 同花顺: dq.10jqka 热股日榜(讨论/关注度热度值)
 - 淘股吧: 首页"热门研股"栏(游资讨论)
-- 通达信: 无公开HTTP接口, 未纳入
+- 雪球: 热股榜(用户关注度值, 与通达信"当前关注度"同口径; 先访问首页取Cookie)
+- 通达信: 关注度数据锁于其私有云(TQLEX网关拒绝外部连接), 无法接入
 名称与涨跌幅统一用东财全A快照补全。
 用法: python hot_stocks.py   输出: data/hot_stocks.json
 """
 import datetime
+import http.cookiejar
 import json
 import os
 import re
+import ssl
 import sys
 import urllib.request
 
@@ -19,6 +22,11 @@ import common as C  # noqa: E402
 
 TOPN = 50
 OUT = os.path.join(C.DATA, "hot_stocks.json")
+XQ_URL = ("https://stock.xueqiu.com/v5/stock/hot_stock/list.json"
+          "?size=50&_type=10&type=10")
+_NOVERIFY = ssl.create_default_context()
+_NOVERIFY.check_hostname = False
+_NOVERIFY.verify_mode = ssl.CERT_NONE
 
 
 def post_json(url, body, headers=None, timeout=20):
@@ -111,20 +119,52 @@ def fetch_tgb():
     return out
 
 
+def fetch_xq():
+    """雪球热股榜: 用户关注度值(需先访问首页获取Cookie)"""
+    cj = http.cookiejar.CookieJar()
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPCookieProcessor(cj),
+        urllib.request.HTTPSHandler(context=_NOVERIFY))
+    opener.addheaders = [("User-Agent",
+                          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")]
+    opener.open("https://xueqiu.com/", timeout=20)
+    req = urllib.request.Request(XQ_URL, headers={"Referer": "https://xueqiu.com/"})
+    j = json.loads(opener.open(req, timeout=20).read().decode("utf-8", "replace"))
+    items = ((j.get("data") or {}).get("items")) or []
+    out = []
+    for i, r in enumerate(items[:TOPN]):
+        code = str(r.get("code") or "")[2:]
+        if not code:
+            continue
+        out.append({
+            "code": code, "name": r.get("name") or "", "rank": i + 1,
+            "value": round(float(r.get("value") or 0)),
+            "rank_change": r.get("rank_change"),
+            "pct": (round(float(r["percent"]), 2)
+                    if isinstance(r.get("percent"), (int, float)) else None),
+            "price": (float(r["current"])
+                      if isinstance(r.get("current"), (int, float)) else None),
+        })
+    return out
+
+
 def run():
-    em, ths, tgb, err = [], [], [], []
-    for name, fn in [("em", fetch_em), ("ths", fetch_ths), ("tgb", fetch_tgb)]:
+    em, ths, tgb, xq, err = [], [], [], [], []
+    for name, fn in [("em", fetch_em), ("ths", fetch_ths),
+                     ("tgb", fetch_tgb), ("xq", fetch_xq)]:
         try:
             rows = fn()
             if name == "em":
                 em = rows
             elif name == "ths":
                 ths = rows
-            else:
+            elif name == "tgb":
                 tgb = rows
+            else:
+                xq = rows
         except Exception as e:  # noqa: BLE001
             err.append("%s:%s" % (name, str(e)[:100]))
-    if not (em or ths or tgb):
+    if not (em or ths or tgb or xq):
         raise RuntimeError("全部热股源失败: %s" % err)
 
     names = {}
@@ -149,20 +189,21 @@ def run():
             r.setdefault("price", None)
         return rows
 
-    em, ths, tgb = fill(em), fill(ths), fill(tgb)
+    em, ths, tgb, xq = fill(em), fill(ths), fill(tgb), fill(xq)
     out = {
         "updated": C.now_str(),
-        "em": em, "ths": ths, "tgb": tgb,
+        "em": em, "ths": ths, "tgb": tgb, "xq": xq,
         "err": err,
         "method": (
             "东方财富=人气榜TOP50(关注+成交人气); 同花顺=热股日榜TOP50(讨论热度值); "
-            "淘股吧=首页'热门研股'栏(游资/潜伏讨论); 通达信无公开接口未纳入。"
+            "淘股吧=首页'热门研股'栏(游资/潜伏讨论); 雪球=热股榜TOP50(用户关注度值, "
+            "与通达信'当前关注度'同口径, 附榜内热度占比); 通达信私有云无法接入。"
             "出现在≥2个榜单的个股金色高亮(共热=资金与情绪共振)。"
         ),
     }
     C.save_json(OUT, out)
-    C.log("hot: em=%d ths=%d tgb=%d err=%s"
-          % (len(em), len(ths), len(tgb), err or "-"))
+    C.log("hot: em=%d ths=%d tgb=%d xq=%d err=%s"
+          % (len(em), len(ths), len(tgb), len(xq), err or "-"))
     return out
 
 

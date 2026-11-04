@@ -616,7 +616,9 @@
   }
 
   /* ---------------- 7. 热股榜(多源, 共热高亮) ---------------- */
-  var HOT_SRC_CN = { em: "东方财富人气榜", ths: "同花顺热股榜(日)", tgb: "淘股吧热门研股" };
+  var HOT_SRC_CN = { em: "东方财富人气榜", ths: "同花顺热股榜(日)",
+                     tgb: "淘股吧热门研股", xq: "雪球热股榜(关注度)" };
+  var HOT_SRCS = ["em", "ths", "tgb", "xq"];
 
   function renderHot(h) {
     state.hot = h;
@@ -624,15 +626,20 @@
     var rows = h[src] || [];
     // 跨榜共现统计
     var cnt = {};
-    ["em", "ths", "tgb"].forEach(function (s) {
+    HOT_SRCS.forEach(function (s) {
       (h[s] || []).forEach(function (r) {
         if (r.code) cnt[r.code] = (cnt[r.code] || 0) + 1;
       });
     });
+    // 雪球: 榜内热度合计(算占比, 仿通达信"当前关注度/占比"结构)
+    var xqTot = 0;
+    (h.xq || []).forEach(function (r) {
+      if (r.value) xqTot += r.value;
+    });
     $("hot-updated").textContent = "更新时间: " + (h.updated || "--") +
       " (A股时段每10分钟更新; " + (HOT_SRC_CN[src] || src) + ")";
-    var html = "<table class='us hot'><thead><tr><th class='rank'>#</th>" +
-      "<th class='sym'>代码</th><th class='name'>名称</th><th class='heat'>热度</th>" +
+    var html = "<table class='us hot'><thead><tr><th class='rank'>名次</th>" +
+      "<th class='sym'>品种代码</th><th class='name'>品种名称</th><th class='heat'>热度/占比</th>" +
       "<th class='price'>最新价</th><th class='pct'>涨跌幅</th><th class='bar-cell'>共热</th>" +
       "</tr></thead><tbody>";
     rows.forEach(function (r, i) {
@@ -645,6 +652,11 @@
       } else if (src === "ths") {
         heat = r.rate >= 1e8 ? (r.rate / 1e8).toFixed(1) + "亿"
           : (r.rate / 1e4).toFixed(0) + "万";
+      } else if (src === "xq") {
+        heat = fmt(r.value, 0) +
+          (xqTot ? " · " + (r.value / xqTot * 100).toFixed(1) + "%" : "") +
+          (r.rank_change > 0 ? " ↑" + r.rank_change
+            : (r.rank_change < 0 ? " ↓" + (-r.rank_change) : ""));
       } else {
         heat = "研股";
       }
