@@ -73,11 +73,16 @@ def save_json(path, obj):
 
 
 def now_str():
-    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    """统一北京时间(不受运行机器时区影响: 本地为+8, GitHub Actions runner为UTC)"""
+    from zoneinfo import ZoneInfo
+    return datetime.datetime.now(ZoneInfo("Asia/Shanghai")).strftime(
+        "%Y-%m-%d %H:%M:%S")
 
 
 def log(msg):
-    print("[%s] %s" % (datetime.datetime.now().strftime("%H:%M:%S"), msg), flush=True)
+    from zoneinfo import ZoneInfo
+    print("[%s] %s" % (datetime.datetime.now(ZoneInfo("Asia/Shanghai"))
+                       .strftime("%H:%M:%S"), msg), flush=True)
 
 
 # ---------------- 东财 / 交易所 / 中证 各接口封装 ----------------

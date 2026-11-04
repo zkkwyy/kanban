@@ -121,50 +121,70 @@ def fetch_tgb():
 
 
 def fetch_xq():
-    """雪球热股榜: 用户关注度值(需先访问首页获取Cookie)"""
-    cj = http.cookiejar.CookieJar()
-    opener = urllib.request.build_opener(
-        urllib.request.HTTPCookieProcessor(cj),
-        urllib.request.HTTPSHandler(context=_NOVERIFY))
-    opener.addheaders = [("User-Agent",
-                          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")]
-    opener.open("https://xueqiu.com/", timeout=20)
-    req = urllib.request.Request(XQ_URL, headers={"Referer": "https://xueqiu.com/"})
-    j = json.loads(opener.open(req, timeout=20).read().decode("utf-8", "replace"))
-    items = ((j.get("data") or {}).get("items")) or []
-    out = []
-    for i, r in enumerate(items[:TOPN]):
-        code = str(r.get("code") or "")[2:]
-        if not code:
-            continue
-        out.append({
-            "code": code, "name": r.get("name") or "", "rank": i + 1,
-            "value": round(float(r.get("value") or 0)),
-            "rank_change": r.get("rank_change"),
-            "pct": (round(float(r["percent"]), 2)
-                    if isinstance(r.get("percent"), (int, float)) else None),
-            "price": (float(r["current"])
-                      if isinstance(r.get("current"), (int, float)) else None),
-        })
-    return out
+    """雪球热股榜: 用户关注度值(需先访问首页获取Cookie; 海外IP可能被风控, 带重试)"""
+    import time
+    last = None
+    for attempt in range(3):
+        try:
+            cj = http.cookiejar.CookieJar()
+            opener = urllib.request.build_opener(
+                urllib.request.HTTPCookieProcessor(cj),
+                urllib.request.HTTPSHandler(context=_NOVERIFY))
+            opener.addheaders = [("User-Agent",
+                                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                                  "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                  "Chrome/131.0.0.0 Safari/537.36"),
+                                 ("Accept-Language", "zh-CN,zh;q=0.9")]
+            opener.open("https://xueqiu.com/", timeout=20)
+            if not any(c.name == "xq_a_token" for c in cj):
+                raise RuntimeError("xueqiu未下发token(可能被风控)")
+            req = urllib.request.Request(
+                XQ_URL, headers={"Referer": "https://xueqiu.com/"})
+            j = json.loads(opener.open(req, timeout=20).read()
+                           .decode("utf-8", "replace"))
+            items = ((j.get("data") or {}).get("items")) or []
+            out = []
+            for i, r in enumerate(items[:TOPN]):
+                code = str(r.get("code") or "")[2:]
+                if not code:
+                    continue
+                out.append({
+                    "code": code, "name": r.get("name") or "", "rank": i + 1,
+                    "value": round(float(r.get("value") or 0)),
+                    "rank_change": r.get("rank_change"),
+                    "pct": (round(float(r["percent"]), 2)
+                            if isinstance(r.get("percent"), (int, float)) else None),
+                    "price": (float(r["current"])
+                              if isinstance(r.get("current"), (int, float)) else None),
+                })
+            return out
+        except Exception as e:  # noqa: BLE001
+            last = e
+            time.sleep(3)
+    raise last
 
 
 def run():
+    old = C.load_json(OUT, {})
     em, ths, tgb, xq, err = [], [], [], [], []
     for name, fn in [("em", fetch_em), ("ths", fetch_ths),
                      ("tgb", fetch_tgb), ("xq", fetch_xq)]:
         try:
             rows = fn()
-            if name == "em":
-                em = rows
-            elif name == "ths":
-                ths = rows
-            elif name == "tgb":
-                tgb = rows
-            else:
-                xq = rows
         except Exception as e:  # noqa: BLE001
             err.append("%s:%s" % (name, str(e)[:100]))
+            # 抓取失败时沿用上次数据(避免偶发风控清空榜单)
+            rows = old.get(name) or []
+            if rows:
+                err[-1] += "(沿用上次)"
+        if name == "em":
+            em = rows
+        elif name == "ths":
+            ths = rows
+        elif name == "tgb":
+            tgb = rows
+        else:
+            xq = rows
     if not (em or ths or tgb or xq):
         raise RuntimeError("全部热股源失败: %s" % err)
 
