@@ -170,7 +170,69 @@
     $("margin-note").textContent = "口径: " + (m.method || "");
   }
 
-  /* ---------------- 3. 沪深300全收益 vs 隐形支撑线(K×二级债基) ---------------- */
+  /* ---------------- 3. A股成交集中度 ---------------- */
+  function renderConc(c) {
+    var cur = c.cur, ma = c.ma20 ? c.ma20[c.ma20.length - 1] : null;
+    $("conc-stats").innerHTML = ""
+      + stat("当前集中度", fmt(cur, 1) + "%", "#39c5cf")
+      + stat("MA20", fmt(ma, 1) + "%", "#d4a94f")
+      + stat("历史中位数", fmt(c.median, 1) + "%")
+      + stat("历史分位", fmt(c.pctile, 0) + "%",
+             (c.pctile >= 80 || c.pctile <= 20) ? UPC : "#d7dde8")
+      + stat("活跃个股", fmt(c.n_stocks[c.n_stocks.length - 1], 0) + " 只");
+    var chart = charts.conc || echarts.init($("conc-chart"));
+    charts.conc = chart;
+    chart.setOption({
+      backgroundColor: "transparent",
+      grid: { left: 60, right: 20, top: 30, bottom: 70 },
+      tooltip: deepMerge({
+        trigger: "axis",
+        formatter: function (ps) {
+          var h = ps[0].name + "<br>";
+          for (var i = 0; i < ps.length; i++) {
+            var p = ps[i];
+            h += p.marker + " " + p.seriesName + ": <b>" +
+                 (p.value === null || p.value === undefined ? "--" : fmt(p.value, 2)) +
+                 "%</b><br>";
+          }
+          return h;
+        }
+      }, TIP),
+      legend: { textStyle: { color: "#7b8496" }, top: 0 },
+      xAxis: deepMerge({ type: "category", data: c.dates }, AXIS),
+      yAxis: deepMerge({
+        name: "%", scale: true,
+        axisLabel: { formatter: function (v) { return v + "%"; } }
+      }, AXIS),
+      dataZoom: [
+        { type: "inside" },
+        { type: "slider", height: 18, bottom: 8, borderColor: "#2a3346",
+          textStyle: { color: "#7b8496" } }
+      ],
+      series: [
+        {
+          name: "日度集中度", type: "line", data: c.conc, showSymbol: false,
+          lineStyle: { color: "#39c5cf", width: 1.5 },
+          itemStyle: { color: "#39c5cf" },
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: "rgba(57,197,207,0.25)" },
+              { offset: 1, color: "rgba(57,197,207,0.02)" }
+            ])
+          }
+        },
+        {
+          name: "MA20", type: "line", data: c.ma20, showSymbol: false,
+          lineStyle: { color: "#d4a94f", width: 2 },
+          itemStyle: { color: "#d4a94f" }
+        }
+      ]
+    }, true);
+    $("conc-note").textContent = "口径: " + (c.method || "") +
+      " 集中度越高代表成交越向少数个股(龙头/抱团股)集中, 市场宽度越窄; 反之为普涨普跌的宽市场。";
+  }
+
+  /* ---------------- 4. 沪深300全收益 vs 隐形支撑线(K×二级债基) ---------------- */
   function renderTri(t) {
     state.tri = t;
     var dates = t.dates, tri = t.tri;
@@ -405,6 +467,7 @@
   function loadAll() {
     fetchJSON("data/etf_flows.json").then(renderFlows).catch(showErr("flows"));
     fetchJSON("data/margin.json").then(renderMargin).catch(showErr("margin"));
+    fetchJSON("data/concentration.json").then(renderConc).catch(showErr("conc"));
     fetchJSON("data/tri_bond.json").then(renderTri).catch(showErr("tri"));
     fetchJSON("data/us_sectors.json").then(renderUS).catch(showErr("us"));
     fetchJSON("data/meta.json").then(renderMeta).catch(function () {});

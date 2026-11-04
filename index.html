@@ -45,10 +45,20 @@
     <div class="note" id="margin-note"></div>
   </section>
 
-  <!-- 3. 沪深300全收益 vs 隐形支撑线 -->
+  <!-- 3. A股成交集中度 -->
+  <section class="card" id="sec-conc">
+    <div class="card-head">
+      <h2>③ A股成交集中度 <span class="since">(2005至今, 前5%个股成交额占全市场比重)</span></h2>
+    </div>
+    <div class="stats" id="conc-stats"></div>
+    <div id="conc-chart" class="chart"></div>
+    <div class="note" id="conc-note"></div>
+  </section>
+
+  <!-- 4. 沪深300全收益 vs 隐形支撑线 -->
   <section class="card" id="sec-tri">
     <div class="card-head">
-      <h2>③ 沪深300全收益 <em>vs</em> 隐形支撑线(K×二级债基指数) <span class="since">(2005至今)</span></h2>
+      <h2>④ 沪深300全收益 <em>vs</em> 隐形支撑线(K×二级债基指数) <span class="since">(2005至今)</span></h2>
       <div class="coef">
         <label>隐形线系数K <input type="number" id="coef-input" value="1.52" step="0.01" min="0.01" max="10"></label>
       </div>
@@ -58,10 +68,10 @@
     <div class="note" id="tri-note"></div>
   </section>
 
-  <!-- 4. 美股板块 -->
+  <!-- 5. 美股板块 -->
   <section class="card" id="sec-us">
     <div class="card-head">
-      <h2>④ 美股板块涨跌榜 <span class="since">(盘前 / 盘中 / 盘后)</span></h2>
+      <h2>⑤ 美股板块涨跌榜 <span class="since">(盘前 / 盘中 / 盘后)</span></h2>
       <button id="us-refresh" class="refresh-btn">手动刷新</button>
     </div>
     <div class="us-meta">

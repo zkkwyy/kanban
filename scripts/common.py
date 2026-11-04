@@ -151,8 +151,9 @@ def fetch_szse_etf_shares(start, end):
 
 
 def em_secid(code):
-    """基金代码 -> 东财secid市场前缀: 5开头沪市(1), 其余深市(0)"""
-    return ("1." if code.startswith("5") else "0.") + code
+    """代码 -> 东财secid市场前缀: 5/6/9开头沪市(1), 其余深市(0)
+    (沪: 5xxxxx基金 6xxxxx股票/科创 9xxxxxB股; 深: 0/2/3股票 1xxxxx基金)"""
+    return ("1." if code[0] in "569" else "0.") + code
 
 
 def fetch_kline(code, beg="19900101", end="20991231"):

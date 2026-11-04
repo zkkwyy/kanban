@@ -10,6 +10,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common as C  # noqa: E402
 import bond_index  # noqa: E402
+import concentration  # noqa: E402
 import huijin  # noqa: E402
 from width_etfs import is_broad_etf  # noqa: E402
 
@@ -218,6 +219,12 @@ def run():
         state["cyrjg"] = cyrjg
         C.save_json(os.path.join(C.STATE, "etf_state.json"), state)
         C.log("cyrjg refreshed: %d" % n)
+
+    # 成交集中度(收盘后快照, 非交易日/未收盘自动跳过)
+    try:
+        concentration.update(tdays)
+    except Exception as e:  # noqa: BLE001
+        C.log("conc fail: %s" % e)
 
     # 二级债基指数
     try:
