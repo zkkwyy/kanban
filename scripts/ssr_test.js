@@ -132,11 +132,59 @@ function triOption() {
   };
 }
 
+/* 模块③ 集中度: 历次大顶竖标+过热线(与app.js renderConc一致) */
+function concOption(zoom30) {
+  const c = JSON.parse(fs.readFileSync(path.join(ROOT, "data/concentration.json"), "utf8"));
+  const oh = c.overheat;
+  const mk = (c.peaks || []).map(p => verticalMark(p.date, p.label));
+  if (oh != null) {
+    mk.push({
+      yAxis: oh,
+      lineStyle: { color: "#e5484d", type: "dashed", width: 1.5 },
+      label: { formatter: "过热线(历次大顶均值) " + oh.toFixed(1) + "%",
+               color: "#e5484d", fontSize: 10, position: "insideEndTop" }
+    });
+  }
+  const n = c.dates.length;
+  const zs = zoom30 && n > 30 ? c.dates[n - 30] : undefined;
+  const zoom = zs ? { startValue: zs, endValue: c.dates[n - 1] } : {};
+  return {
+    grid: { left: 60, right: 20, top: 30, bottom: 70 },
+    xAxis: { type: "category", data: c.dates },
+    yAxis: { scale: true,
+      min: v => Math.max(0, (v.min || 0) - 3),
+      max: v => Math.max((v.max || 0) + 3, (oh || 0) + 3) },
+    dataZoom: [
+      Object.assign({ type: "inside" }, zoom),
+      Object.assign({ type: "slider", height: 18, bottom: 8 }, zoom)
+    ],
+    series: [{ type: "line", data: c.conc, showSymbol: false,
+      markLine: { symbol: "none", data: mk, silent: true } }]
+  };
+}
+
 let fail = 0;
 const W = 1100, H = 420;
 
 fail += check("模块①-ETF事件标注(全视图)", render(W, H, flowsOption()), 30, 350);
-fail += check("模块③-大底标注(全视图)", render(W, H, triOption()), 45, 220);
+fail += check("模块④-大底标注(全视图)", render(W, H, triOption()), 45, 220);
+fail += check("模块③-集中度历顶标注(全视图)", render(W, H, concOption(false)), 30, 350);
+
+// 30天默认窗口: 过热线标签必须可见(检查SVG中含"过热线"文字)
+const svg30 = render(W, H, concOption(true));
+if (/过热线/.test(svg30)) {
+  console.log("[模块③-30天窗口] 过热线可见 ✓");
+} else {
+  console.log("[模块③-30天窗口] !! 过热线不可见");
+  fail++;
+}
+const cols30 = analyzeLabels(svg30);
+if (cols30.length === 0) {
+  console.log("[模块③-30天窗口] 窗口外竖标已隐藏 ✓");
+} else {
+  console.log("[模块③-30天窗口] !! 窗口外竖标残留: " + cols30.map(x => x.chars).join(","));
+  fail++;
+}
 
 console.log(fail ? `\nRESULT: ${fail} 项问题` : "\nRESULT: 全部通过");
 process.exit(fail ? 1 : 0);

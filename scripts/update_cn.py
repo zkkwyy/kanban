@@ -253,6 +253,27 @@ def run():
     except Exception as e:  # noqa: BLE001
         C.log("bond fail: %s" % e)
 
+    # 隐形支撑线: 每日重校准K/大底/偏离度(大底含365天右端确认保护)
+    try:
+        import compute_cn
+        tri = C.load_json(os.path.join(C.DATA, "tri_bond.json")) or {}
+        if tri.get("dates") and tri.get("bond_dates") and tri.get("bond"):
+            bmap = dict(zip(tri["bond_dates"], tri["bond"]))
+            aligned, last = [], None
+            for d in tri["dates"]:
+                if d in bmap:
+                    last = bmap[d]
+                aligned.append(last)
+            sup = compute_cn.build_support(tri["dates"], tri["tri"], aligned)
+            if sup:
+                tri["support"] = sup
+                tri["updated"] = C.now_str()
+                C.save_json(os.path.join(C.DATA, "tri_bond.json"), tri)
+                C.log("support recalced: k=%.2f, %d bottoms, cur_dev=%+.1f"
+                      % (sup["k"], sup["bottom_count"], sup["cur_dev"]))
+    except Exception as e:  # noqa: BLE001
+        C.log("support fail: %s" % e)
+
     # 国家队(汇金)估算序列: 无论是否有新交易日, 月度网格都延伸到当月
     try:
         huijin.refresh_gjs(flows)

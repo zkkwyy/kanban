@@ -155,9 +155,6 @@
       ],
       series: series
     }, true);
-    $("flows-note").textContent = "口径: " + (flows.method || "") +
-      " 国家队曲线自" + (g.est_from || "—") +
-      "起为估算延伸; 数据滞后于交易所披露, 每日收盘后更新。";
   }
 
   function line(name, data, color, dashed) {
@@ -213,25 +210,35 @@
         }
       }]
     }, true);
-    $("margin-note").textContent = "口径: " + (m.method || "");
   }
 
   /* ---------------- 3. A股成交集中度 ---------------- */
   function renderConc(c) {
     var cur = c.cur, ma = c.ma20 ? c.ma20[c.ma20.length - 1] : null;
     var oh = c.overheat;
-    var overheated = oh != null && cur != null && cur > oh;
+    var overheated = oh != null && ma != null && ma > oh;
     $("conc-stats").innerHTML = ""
       + stat("当前集中度", fmt(cur, 1) + "%", "#39c5cf")
       + stat("MA20", fmt(ma, 1) + "%", "#d4a94f")
       + stat("过热判定", overheated ? "过热 ↑" : "未过热",
              overheated ? UPC : "#d7dde8")
-      + stat("历史中位数", fmt(c.median, 1) + "%")
-      + stat("历史分位", fmt(c.pctile, 0) + "%",
-             (c.pctile >= 80 || c.pctile <= 20) ? UPC : "#d7dde8")
+      + stat("历次大顶均值", oh != null ? fmt(oh, 1) + "%" : "--", "#e5484d")
       + stat("活跃个股", fmt(c.n_stocks[c.n_stocks.length - 1], 0) + " 只");
     var chart = charts.conc || echarts.init($("conc-chart"));
     charts.conc = chart;
+    var mk = (c.peaks || []).map(function (p) {
+      return verticalMark(p.date, p.label);
+    });
+    if (oh != null) {
+      mk.push({
+        yAxis: oh,
+        lineStyle: { color: "#e5484d", type: "dashed", width: 1.5 },
+        label: { formatter: "过热线(历次大顶均值) " + fmt(oh, 1) + "%",
+                 color: "#e5484d", fontSize: 10, position: "insideEndTop" }
+      });
+    }
+    var n = c.dates.length;
+    var zs = n > 30 ? c.dates[n - 30] : c.dates[0];
     chart.setOption({
       backgroundColor: "transparent",
       grid: { left: 60, right: 20, top: 30, bottom: 70 },
@@ -252,12 +259,14 @@
       xAxis: deepMerge({ type: "category", data: c.dates }, AXIS),
       yAxis: deepMerge({
         name: "%", scale: true,
+        min: function (v) { return Math.max(0, (v.min || 0) - 3); },
+        max: function (v) { return Math.max((v.max || 0) + 3, (oh || 0) + 3); },
         axisLabel: { formatter: function (v) { return v + "%"; } }
       }, AXIS),
       dataZoom: [
-        { type: "inside" },
+        { type: "inside", startValue: zs, endValue: c.dates[n - 1] },
         { type: "slider", height: 18, bottom: 8, borderColor: "#2a3346",
-          textStyle: { color: "#7b8496" } }
+          textStyle: { color: "#7b8496" }, startValue: zs, endValue: c.dates[n - 1] }
       ],
       series: [
         {
@@ -270,15 +279,7 @@
               { offset: 1, color: "rgba(57,197,207,0.02)" }
             ])
           },
-          markLine: (oh != null ? {
-            symbol: "none", silent: true,
-            data: [{
-              yAxis: oh,
-              lineStyle: { color: "#e5484d", type: "dashed", width: 1.5 },
-              label: { formatter: "过热线(历史80%分位) " + fmt(oh, 1) + "%",
-                       color: "#e5484d", fontSize: 10, position: "insideEndTop" }
-            }]
-          } : undefined)
+          markLine: mk.length ? { symbol: "none", data: mk, silent: true } : undefined
         },
         {
           name: "MA20", type: "line", data: c.ma20, showSymbol: false,
@@ -287,8 +288,6 @@
         }
       ]
     }, true);
-    $("conc-note").textContent = "口径: " + (c.method || "") +
-      " 集中度越高代表成交越向少数个股(龙头/抱团股)集中, 市场宽度越窄; 反之为普涨普跌的宽市场。";
   }
 
   /* ---------------- 4. 全市场情绪(站上均线比例) ---------------- */
@@ -306,6 +305,8 @@
       + stat("活跃个股", fmt(s.n_stocks[s.n_stocks.length - 1], 0) + " 只");
     var chart = charts.sent || echarts.init($("sent-chart"));
     charts.sent = chart;
+    var sn = s.dates.length;
+    var szs = sn > 30 ? s.dates[sn - 30] : s.dates[0];
     chart.setOption({
       backgroundColor: "transparent",
       grid: { left: 60, right: 20, top: 30, bottom: 70 },
@@ -329,9 +330,9 @@
         axisLabel: { formatter: function (v) { return v + "%"; } }
       }, AXIS),
       dataZoom: [
-        { type: "inside" },
+        { type: "inside", startValue: szs, endValue: s.dates[sn - 1] },
         { type: "slider", height: 18, bottom: 8, borderColor: "#2a3346",
-          textStyle: { color: "#7b8496" } }
+          textStyle: { color: "#7b8496" }, startValue: szs, endValue: s.dates[sn - 1] }
       ],
       series: [
         {
@@ -368,8 +369,6 @@
         }
       ]
     }, true);
-    $("sent-note").textContent = "口径: " + (s.method || "") +
-      " 比例高=普遍站上均线(强势/超买), 低=普遍跌破(弱势/超卖); 三线分化时市场处于结构切换期。";
   }
 
   /* ---------------- 5. 沪深300全收益 vs 隐形支撑线(K×二级债基) ---------------- */
@@ -510,16 +509,8 @@
         }
       ]
     }, true);
-    var bn = (sup.bottoms || []).map(function (b) {
-      return b.label + "(" + b.date + (b.dev != null ? " " + (b.dev > 0 ? "+" : "") + b.dev + "%" : "") + ")";
-    }).join("、");
-    $("tri-note").textContent = "口径: " + (t.method || "") +
-      " 已确认大底: " + (bn || "--") + "。" +
-      " 说明: 原文0.43对应中证非纯债债基指数点位口径; 本看板为自建等权指数(基期1000), " +
-      "经大底校准的等效系数 K=" + kLabel + "。" +
-      " 大底平均偏离 " + (avgDev != null ? fmt(avgDev, 1) : "--") +
-      "%, 当前偏离 " + (curDev === null ? "--" : (curDev > 0 ? "+" : "") + fmt(curDev, 1)) + "%。";
   }
+
 
   /* ---------------- 6. 美股板块 ---------------- */
   var PHASE_CN = { pre: "盘前", regular: "盘中", post: "盘后", closed: "休市" };
@@ -557,7 +548,6 @@
       }).join("");
     renderUSTable(us);
     syncUsToggle();
-    $("us-note").textContent = "口径: " + (us.method || "");
     var b = $("badge-us-phase");
     b.textContent = "美股" + (PHASE_CN[us.phase] || us.phase);
     b.className = "badge" + (us.phase === "closed" ? "" : " live");

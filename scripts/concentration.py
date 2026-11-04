@@ -100,7 +100,7 @@ def load_days():
 
 
 def build_series(days):
-    """{date:(n,tot,top)} -> 排序序列 + ma20 + 统计"""
+    """{date:(n,tot,top)} -> 排序序列 + ma20 + 历次大顶 + 过热线"""
     dates = sorted(days)
     conc, ma20, ns = [], [], []
     run = []
@@ -113,17 +113,39 @@ def build_series(days):
         if len(run) > 20:
             run.pop(0)
         ma20.append(round(sum(run) / len(run), 2))
+
+    # 历次大顶检测: MA20的2年(500日)窗口局部极大, 1年内合并取更高, 剔除左边界
+    nn = len(dates)
+    cand = []
+    for i in range(250, nn):
+        v = ma20[i]
+        if v is None:
+            continue
+        lo, hi = max(0, i - 500), min(nn, i + 500)
+        win = [x for x in ma20[lo:hi] if x is not None]
+        if v >= max(win) - 1e-9:
+            cand.append(i)
+    peaks = []
+    for i in cand:
+        if peaks and i - peaks[-1] < 365:
+            if (ma20[i] or 0) > (ma20[peaks[-1]] or 0):
+                peaks[-1] = i
+        else:
+            peaks.append(i)
+    peak_list = [{"date": dates[i], "label": dates[i][:4] + "顶",
+                  "ma20": ma20[i]} for i in peaks]
+    overheat = (round(sum(p["ma20"] for p in peak_list) / len(peak_list), 1)
+                if peak_list else None)
+
     # 统计
     valid = [v for v in conc if v is not None]
     cur = valid[-1] if valid else None
     med = None
     pctl = None
-    overheat = None
     if valid and cur is not None:
         vs = sorted(valid)
         med = round(vs[len(vs) // 2], 1)
         pctl = round(sum(1 for v in valid if v <= cur) / len(valid) * 100, 1)
-        overheat = round(vs[int(0.8 * (len(vs) - 1))], 1)   # 历史80%分位=过热线
     return {
         "updated": C.now_str(),
         "dates": dates,
@@ -134,12 +156,14 @@ def build_series(days):
         "median": med,
         "pctile": pctl,
         "overheat": overheat,
+        "peaks": peak_list,
         "share": SHARE,
         "method": (
             "成交集中度=当日成交额前5%个股(按数量, 剔除停牌)合计成交额占全市场成交额的百分比; "
             "数据为东财全A股日度成交额(沪深主板/创业板/科创板, 不含北交所); "
             "历史回填仅含当前上市公司(存在幸存者偏差), 含MA20均线; "
-            "过热线=2005年以来80%历史分位, 高于该线代表成交过度向少数个股集中。"
+            "过热线=历次集中度大顶(MA20两年窗口局部极大)的平均水平, "
+            "MA20触及该线代表进入历史抱团顶部区域。"
         ),
     }
 

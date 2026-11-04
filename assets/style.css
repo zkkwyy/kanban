@@ -55,16 +55,24 @@ main {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 18px;
-  align-items: start;
+  align-items: stretch;   /* 同行卡片高度对齐 */
 }
 
 main .card { margin-bottom: 0; }
 main footer { grid-column: 1 / -1; max-width: none; padding: 0; }
 
+/* 美股表格: 卡片内滚动, 与模块⑤高度对齐 */
+#sec-us { display: flex; flex-direction: column; }
+#us-table { flex: 1 1 auto; min-height: 0; overflow-y: auto; max-height: 430px; }
+#us-table::-webkit-scrollbar { width: 8px; }
+#us-table::-webkit-scrollbar-thumb { background: #2a3346; border-radius: 4px; }
+#us-table::-webkit-scrollbar-track { background: transparent; }
+
 @media (max-width: 1300px) {
   main { display: block; }
   main .card { margin-bottom: 18px; }
   main footer { max-width: 1200px; margin: 0 auto; padding: 0 16px 30px; }
+  #us-table { max-height: 560px; }
 }
 
 .card {
@@ -127,6 +135,8 @@ main footer { grid-column: 1 / -1; max-width: none; padding: 0; }
   margin-top: 8px;
   line-height: 1.6;
 }
+
+/* (描述文本已移除, 保留样式备用) */
 
 /* 美股部分 */
 .us-meta { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
