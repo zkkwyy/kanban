@@ -1,0 +1,39 @@
+name: 每周全量重建
+on:
+  schedule:
+    - cron: "30 1 * * 6"   # 北京时间 周六 09:30
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: weekly-rebuild
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 安装依赖
+        run: pip install openpyxl tzdata
+      - name: 重建二级债基指数(全量净值)
+        run: python scripts/bond_index.py rebuild
+      - name: 更新A股数据(含持有人结构刷新)
+        run: python scripts/update_cn.py --full-cyrjg
+      - name: 提交数据变更
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "no data change"
+          else
+            git commit -m "data: 周度重建 $(date -u +'%Y-%m-%d %H:%M') UTC"
+            git push
+          fi

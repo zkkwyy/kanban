@@ -1,0 +1,39 @@
+name: A股数据更新
+on:
+  schedule:
+    - cron: "30 12 * * 1-5"   # 北京时间 周一~五 20:30 收盘后主更新
+    - cron: "30 14 * * 1-5"   # 北京时间 周一~五 22:30 补两融/净值晚间披露
+    - cron: "10 1 * * 2-6"    # 北京时间 次日 09:10 兜底补抓
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cn-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 安装依赖
+        run: pip install openpyxl tzdata
+      - name: 更新A股数据
+        run: python scripts/update_cn.py
+      - name: 提交数据变更
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "no data change"
+          else
+            git commit -m "data: A股更新 $(date -u +'%Y-%m-%d %H:%M') UTC"
+            git push
+          fi

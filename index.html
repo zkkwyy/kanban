@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>金融数据看板</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/echarts.min.js"></script>
+</head>
+<body>
+<header>
+  <div class="title-wrap">
+    <h1>金融数据看板</h1>
+    <div class="sub">免费数据源 · 自动更新 · <a href="https://github.com" id="repo-link" target="_blank" rel="noopener">GitHub Pages</a></div>
+  </div>
+  <div class="badges">
+    <span class="badge" id="badge-cn">A股数据 --</span>
+    <span class="badge" id="badge-us">美股数据 --</span>
+    <span class="badge" id="badge-us-phase">--</span>
+  </div>
+</header>
+
+<main>
+  <!-- 1. 宽基ETF资金流 -->
+  <section class="card" id="sec-flows">
+    <div class="card-head">
+      <h2>① A股宽基ETF资金流向 <span class="since">(2020至今)</span></h2>
+      <div class="toggle" id="flows-toggle">
+        <button class="on" data-mode="cum">累计净申购</button>
+        <button data-mode="daily">日净申购</button>
+      </div>
+    </div>
+    <div class="stats" id="flows-stats"></div>
+    <div id="flows-chart" class="chart"></div>
+    <div class="note" id="flows-note"></div>
+  </section>
+
+  <!-- 2. 融资余额 -->
+  <section class="card" id="sec-margin">
+    <div class="card-head">
+      <h2>② 融资余额 <span class="since">(2020至今)</span></h2>
+    </div>
+    <div class="stats" id="margin-stats"></div>
+    <div id="margin-chart" class="chart"></div>
+    <div class="note" id="margin-note"></div>
+  </section>
+
+  <!-- 3. 沪深300全收益 vs 0.43×二级债基 -->
+  <section class="card" id="sec-tri">
+    <div class="card-head">
+      <h2>③ 沪深300全收益 <em>vs</em> 0.43 × 二级债基指数 <span class="since">(2005至今)</span></h2>
+      <div class="coef">
+        <label>系数 <input type="number" id="coef-input" value="0.43" step="0.01" min="0.01" max="10"></label>
+      </div>
+    </div>
+    <div class="stats" id="tri-stats"></div>
+    <div id="tri-chart" class="chart"></div>
+    <div class="note" id="tri-note"></div>
+  </section>
+
+  <!-- 4. 美股板块 -->
+  <section class="card" id="sec-us">
+    <div class="card-head">
+      <h2>④ 美股板块涨跌榜 <span class="since">(盘前 / 盘中 / 盘后)</span></h2>
+      <button id="us-refresh" class="refresh-btn">手动刷新</button>
+    </div>
+    <div class="us-meta">
+      <div class="chips" id="us-chips"></div>
+      <div class="us-updated" id="us-updated">--</div>
+    </div>
+    <div class="toggle" id="us-toggle">
+      <button class="on" data-tab="pre">盘前</button>
+      <button data-tab="regular">盘中</button>
+      <button data-tab="post">盘后</button>
+    </div>
+    <div id="us-table"></div>
+    <div class="note" id="us-note"></div>
+  </section>
+
+  <footer>
+    <div id="footer-notes"></div>
+    <div class="disclaimer">免责声明：本看板数据来自公开免费渠道，含估算成分，仅供个人参考，不构成任何投资建议。数据以官方披露为准。</div>
+  </footer>
+</main>
+
+<script src="assets/app.js"></script>
+</body>
+</html>
