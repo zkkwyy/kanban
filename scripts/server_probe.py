@@ -72,7 +72,9 @@ TESTS = [
         "https://query.sse.com.cn/commonQuery.do?jsonCallBack=x&sqlId="
         "COMMON_SSE_FUND_ETF_SHARE_GATEWAY_DAILY")),
     ("深交所(szsse)", lambda: t_get(
-        "https://fund.szse.cn/api/fund/etfShare/daily?page=0&size=10")),
+        "https://www.szse.cn/api/report/ShowReport/data?"
+        "SHOWTYPE=JSON&CATALOGID=1945&TABKEY=tab1&PAGENO=1&PAGESIZE=25",
+        referer="https://www.szse.cn/market/fund/volume/etf/index.html")),
 ]
 
 ok, bad = [], []
