@@ -23,6 +23,7 @@ import common as C  # noqa: E402
 
 TOPN = 10
 OUT = os.path.join(C.DATA, "hot_stocks.json")
+NAME_CACHE = os.path.join(C.STATE, "names.json")
 XQ_URL = ("https://stock.xueqiu.com/v5/stock/hot_stock/list.json"
           "?size=50&_type=10&type=10")
 _NOVERIFY = ssl.create_default_context()
@@ -103,7 +104,7 @@ def fetch_ths():
 
 
 def fetch_tgb():
-    """淘股吧首页"热门研股"栏"""
+    """淘股吧首页"热门研股"栏(盘前/停牌价格显示为0, span类不固定: rise/fall/c999)"""
     h = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     req = urllib.request.Request("https://www.tgb.cn/", headers=h)
     html = urllib.request.urlopen(req, timeout=20).read().decode("utf-8", "replace")
@@ -113,7 +114,7 @@ def fetch_tgb():
         code = m.group(1)
         seg = html[m.start():m.start() + 700]
         nm = re.search(r"<p>([^<]+)</p>", seg)
-        rt = re.search(r'<span class="(?:rise|fall)">([\d.]+) / ([+\-\d.]+)%</span>', seg)
+        rt = re.search(r"<span[^>]*>\s*([\d.]+)\s*/\s*([+\-\d.]+)%\s*</span>", seg)
         if nm and rt:
             out.append({"code": code, "name": nm.group(1).strip(),
                         "price": float(rt.group(1)), "pct": float(rt.group(2))})
@@ -171,9 +172,11 @@ def run():
                      ("tgb", fetch_tgb), ("xq", fetch_xq)]:
         try:
             rows = fn()
+            if not rows:
+                raise RuntimeError("空结果")
         except Exception as e:  # noqa: BLE001
             err.append("%s:%s" % (name, str(e)[:100]))
-            # 抓取失败时沿用上次数据(避免偶发风控清空榜单)
+            # 抓取失败/空结果时沿用上次数据(避免偶发风控或页面改版清空榜单)
             rows = old.get(name) or []
             if rows:
                 err[-1] += "(沿用上次)"
@@ -189,11 +192,25 @@ def run():
         raise RuntimeError("全部热股源失败: %s" % err)
 
     names = {}
+    cache = C.load_json(NAME_CACHE, {}) or {}
     if em or ths:
         try:
             names = fetch_names()
         except Exception as e:  # noqa: BLE001
-            err.append("names:%s" % str(e)[:100])
+            err.append("names:%s(改用名称缓存)" % str(e)[:80])
+    if names:
+        # 名称稳定, 成功一次就沉淀进仓库缓存(runner上clist失败时兜底)
+        n_new = 0
+        for code, info in names.items():
+            nm = (info or [""])[0]
+            if nm and cache.get(code) != nm:
+                cache[code] = nm
+                n_new += 1
+        if n_new:
+            try:
+                C.save_json(NAME_CACHE, cache)
+            except Exception:  # noqa: BLE001
+                pass
 
     def fill(rows):
         for r in rows:
@@ -205,6 +222,10 @@ def run():
                     r["pct"] = info[1]
                 if r.get("price") is None:
                     r["price"] = info[2]
+            if not r.get("name"):
+                nm = cache.get(r["code"])
+                if nm:
+                    r["name"] = nm
             r.setdefault("name", "")
             r.setdefault("pct", None)
             r.setdefault("price", None)

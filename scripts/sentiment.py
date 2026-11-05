@@ -15,6 +15,7 @@ import pickle
 import re
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common as C  # noqa: E402
@@ -219,6 +220,45 @@ def save_turnover(days):
     return t
 
 
+def append_output(today, counters, amt_today):
+    """把当日结果追加进已提交的输出JSON(追加式, 绝不重写历史)。
+    GitHub Actions 的 checkout 没有 data/raw(已gitignore), save_series 会用
+    单日数据覆盖全部历史(2026-11-05 04:53 事故), 故增量必须走本函数。"""
+    s = C.load_json(OUT) or {}
+    dates = s.get("dates") or []
+    if today not in dates:
+        boards = s.setdefault("boards", {})
+        tot = [sum((counters.get(b) or [0] * 6)[i] for b in BOARDS)
+               for i in range(6)]
+        for name in ("all",) + BOARDS:
+            c = tot if name == "all" else (counters.get(name) or [0] * 6)
+            b = boards.setdefault(name, {"above5": [], "above10": [],
+                                         "above20": [], "n_stocks": []})
+            b["n_stocks"].append(c[0])
+            b["above5"].append(round(c[1] / c[0] * 100, 1) if c[0] else None)
+            b["above10"].append(round(c[3] / c[2] * 100, 1) if c[2] else None)
+            b["above20"].append(round(c[5] / c[4] * 100, 1) if c[4] else None)
+        dates.append(today)
+        s["dates"] = dates
+    s["updated"] = C.now_str()
+    C.save_json(OUT, s)
+    t = C.load_json(TURN_OUT) or {}
+    tdates = t.get("dates") or []
+    if today not in tdates:
+        agg = t.setdefault("boards", {})
+        for name in ("all",) + BOARDS:
+            v = (sum(amt_today.get(b, 0.0) for b in BOARDS)
+                 if name == "all" else amt_today.get(name, 0.0))
+            agg.setdefault(name, []).append(round(v / 1e8, 1))
+        tdates.append(today)
+        t["dates"] = tdates
+    t["updated"] = C.now_str()
+    C.save_json(TURN_OUT, t)
+    C.log("append_output: %s -> sentiment %d days / turnover %d days"
+          % (today, len(s.get("dates") or []), len(t.get("dates") or [])))
+    return s
+
+
 # ---------------- 回填 ----------------
 
 def backfill():
@@ -313,7 +353,7 @@ def backfill():
 # ---------------- 增量 ----------------
 
 def update(tdays=None):
-    now = datetime.datetime.now()
+    now = datetime.datetime.now(ZoneInfo("Asia/Shanghai"))
     today = now.date().isoformat()
     if now.hour < 15:
         C.log("sent update: skip (未到收盘, hour=%d)" % now.hour)
@@ -322,7 +362,8 @@ def update(tdays=None):
         C.log("sent update: skip (今日非交易日)")
         return None
     days = load_days()
-    if today in days:
+    s_out = C.load_json(OUT) or {}
+    if today in days or today in (s_out.get("dates") or []):
         C.log("sent update: skip (%s 已处理, 避免状态重复推进)" % today)
         return None
     state = C.load_json(STATE) or {}
@@ -391,8 +432,8 @@ def update(tdays=None):
     C.log("sent update: %s main 5日=%d/%d bse=%d只 成交=%.0f亿"
           % (today, counters["main"][1], counters["main"][0], counters["bse"][0],
              sum(amt_today.values()) / 1e8))
-    save_turnover(tdays_amt)
-    return save_series(days)
+    append_output(today, counters, amt_today)
+    return s_out
 
 
 if __name__ == "__main__":

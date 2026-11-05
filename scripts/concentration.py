@@ -14,6 +14,7 @@ import pickle
 import sys
 from array import array
 from concurrent.futures import ThreadPoolExecutor
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common as C  # noqa: E402
@@ -241,16 +242,41 @@ def backfill():
     return s
 
 
+def hydrate_days(days):
+    """从已提交的输出JSON补齐raw缺失的历史日(GitHub runner无data/raw)。
+    conc=tp/tot*100且存的是round2, 用(10000, conc*100)重构无损:
+    重建时 round(conc*100/10000*100, 2) == conc, ma20/peaks由conc序列精确重建。"""
+    out = C.load_json(OUT) or {}
+    odates = out.get("dates") or []
+    conc = out.get("conc") or [None] * len(odates)
+    ns = out.get("n_stocks") or [0] * len(odates)
+    added = 0
+    for i, d in enumerate(odates):
+        if d in days:
+            continue
+        c, n = conc[i], ns[i]
+        days[d] = (n, 10000.0, round(c * 100, 2)) if c is not None else (n, 0, 0)
+        added += 1
+    if added:
+        C.log("conc hydrate: +%d days from output json" % added)
+    return days
+
+
 # ---------------- 增量 ----------------
 
 def update(tdays=None):
-    now = datetime.datetime.now()
+    now = datetime.datetime.now(ZoneInfo("Asia/Shanghai"))
     today = now.date().isoformat()
     if now.hour < 15:
         C.log("conc update: skip (未到收盘, hour=%d)" % now.hour)
         return None
     if tdays is not None and today not in tdays:
         C.log("conc update: skip (今日非交易日)")
+        return None
+    days = load_days()
+    out = C.load_json(OUT) or {}
+    if today in days or today in (out.get("dates") or []):
+        C.log("conc update: skip (%s 已处理)" % today)
         return None
     rows = fetch_snapshot_amounts()
     if len(rows) < 1000:
@@ -261,8 +287,9 @@ def update(tdays=None):
     if cv is None:
         C.log("conc update: 无有效成交额")
         return None
-    days = load_days()
+    days = hydrate_days(days)
     days[today] = (n, tot, tp)
+    os.makedirs(DAYS_DIR, exist_ok=True)
     C.save_json(os.path.join(DAYS_DIR, today + ".json"), [n, tot, tp])
     C.log("conc update: %s n=%d conc=%.1f%% (upsert)" % (today, n, cv))
     return save_series(days)
