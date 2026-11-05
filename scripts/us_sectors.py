@@ -96,6 +96,9 @@ def fetch_one(sym, cn, kind):
 
 def run():
     phase = market_phase()
+    if phase == "closed":
+        C.log("us_sectors: skip (休市, phase=closed)")
+        return None
     rows = []
 
     def work(t):
@@ -108,9 +111,14 @@ def run():
         for r in ex.map(work, ETFS):
             rows.append(r)
     ok = [r for r in rows if "err" not in r]
+    out_path = os.path.join(C.DATA, "us_sectors.json")
+    if not ok:
+        # 全部失败(如国内服务器连不上Yahoo): 保留上次数据, 不写空
+        C.log("us_sectors: 0/%d ok, 保留旧数据" % len(rows))
+        return C.load_json(out_path)
     now_ny = datetime.datetime.now(NY)
     out = {
-        "updated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "updated": C.now_str(),
         "updated_ny": now_ny.strftime("%Y-%m-%d %H:%M:%S %Z"),
         "phase": phase,
         "rows": rows,
@@ -118,7 +126,7 @@ def run():
                    "盘前=相对昨收, 盘中=最新价相对昨收, 盘后=盘后价相对收盘价; "
                    "流动性较低的ETF盘前盘后可能无成交"),
     }
-    C.save_json(os.path.join(C.DATA, "us_sectors.json"), out)
+    C.save_json(out_path, out)
     meta = C.load_json(os.path.join(C.DATA, "meta.json")) or {}
     meta["us_updated"] = out["updated"]
     meta["us_phase"] = phase

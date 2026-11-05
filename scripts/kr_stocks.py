@@ -71,24 +71,41 @@ def fetch_one(sym, cn, kind):
 
 
 def run():
+    out_path = os.path.join(C.DATA, "kr_stocks.json")
+    phase = market_phase()
+    if phase == "closed":
+        C.log("kr: skip (休市, phase=closed)")
+        return None
     rows = []
+
+    def work(a):
+        try:
+            return fetch_one(*a)
+        except Exception:  # noqa: BLE001
+            return {"sym": a[0], "cn": a[1], "kind": a[2],
+                    "pct": None, "price": None}
+
     with ThreadPoolExecutor(max_workers=8) as ex:
-        for r in ex.map(lambda a: fetch_one(*a), KR):
+        for r in ex.map(work, KR):
             rows.append(r)
     ok = sum(1 for r in rows if r["pct"] is not None)
+    if ok == 0:
+        # 全部失败(如国内服务器连不上Yahoo): 保留上次数据, 不写空
+        C.log("kr: 0/%d ok, 保留旧数据" % len(rows))
+        return C.load_json(out_path)
     now = datetime.datetime.now(KST)
     out = {
         "updated": C.now_str(),
         "updated_kst": now.strftime("%Y-%m-%d %H:%M") + " KST",
-        "phase": market_phase(now),
+        "phase": phase,
         "rows": rows,
         "method": (
             "韩股为KRX主要个股与KOSPI/KOSDAQ指数的当日涨跌幅(Yahoo财经免费数据, "
             "价格为韩元); KRX交易时间9:00-15:30(首尔=北京时间8:00-14:30), 无盘前盘后时段。"
         ),
     }
-    C.save_json(os.path.join(C.DATA, "kr_stocks.json"), out)
-    C.log("kr: %d/%d rows ok, phase=%s" % (ok, len(rows), out["phase"]))
+    C.save_json(out_path, out)
+    C.log("kr: %d/%d rows ok, phase=%s" % (ok, len(rows), phase))
     return out
 
 
