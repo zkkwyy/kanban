@@ -25,6 +25,18 @@ foreach ($u in $srcUrls) {
         if ((Get-Item $zip).Length -gt 100KB) { $ok = $true; break }
     } catch { Write-Host "  失败: $($_.Exception.Message)" -ForegroundColor Yellow }
 }
+if (-not $ok) {
+    # 服务器根证书过老时忽略校验重试(仅下载部署包用)
+    Write-Host "常规下载失败, 忽略证书校验重试..." -ForegroundColor Yellow
+    [Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+    foreach ($u in $srcUrls) {
+        try {
+            Invoke-WebRequest $u -OutFile $zip -UseBasicParsing -TimeoutSec 120
+            if ((Get-Item $zip).Length -gt 100KB) { $ok = $true; break }
+        } catch { Write-Host "  失败: $($_.Exception.Message)" -ForegroundColor Yellow }
+    }
+    [Net.ServicePointManager]::ServerCertificateValidationCallback = $null
+}
 if (-not $ok) { throw "站点下载失败: 服务器需能访问 GitHub 或镜像之一" }
 if (Test-Path "$Root.new") { Remove-Item "$Root.new" -Recurse -Force }
 Expand-Archive $zip -DestinationPath "$Root.new" -Force
