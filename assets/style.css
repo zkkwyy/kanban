@@ -136,6 +136,20 @@ table.us .heat { text-align: right; color: #aab3c5; }
   font-variant-numeric: tabular-nums;
 }
 
+/* 情绪模块: 盘中实时条(每10分钟由服务器刷新) */
+.rt-strip {
+  font-size: 12.5px; color: #b6c0d0;
+  padding: 3px 4px 5px;
+  white-space: nowrap; overflow-x: auto;
+  font-variant-numeric: tabular-nums;
+}
+.rt-strip .lab { color: #7b8496; }
+.rt-strip .up { color: #e5484d; font-weight: 600; }
+.rt-strip .dn { color: #3fb68b; font-weight: 600; }
+.rt-strip .v  { color: #dce3ee; font-weight: 600; }
+.rt-strip .sep { color: #4a5568; margin: 0 5px; }
+.rt-strip.stale .v, .rt-strip.stale .up, .rt-strip.stale .dn { color: #7b8496; font-weight: 400; }
+
 .note {
   color: var(--muted);
   font-size: 12px;

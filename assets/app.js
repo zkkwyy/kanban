@@ -273,6 +273,32 @@
   }
 
   /* ---------------- 4. 全市场情绪(站上均线比例, 分板块) ---------------- */
+  /* ---------------- 4b. 情绪·盘中实时条 ---------------- */
+  var BOARD_CN = { all: "全市场", main: "主板", chinext: "创业板", star: "科创板", bse: "北交所" };
+  function renderSentRt(rt) {
+    state.sentRt = rt;
+    var el = $("sent-rt");
+    if (!el || !rt || !rt.current) return;
+    var bd = (rt.boards || {})[state.sentBoard || "all"] || rt.boards.all || {};
+    var c = rt.current;
+    var today = new Date().toISOString().slice(0, 10);
+    var stale = rt.date !== today;
+    el.classList.toggle("stale", stale);
+    var h = '<span class="lab">' + (stale ? "上次盘中" : "盘中") + " " + c.t + '</span>' +
+            '<span class="sep">|</span>' +
+            '上涨 <span class="up">' + (c.up || 0).toLocaleString() + "</span>" +
+            ' / 下跌 <span class="dn">' + (c.down || 0).toLocaleString() + "</span>" +
+            ' / 平 <span class="v">' + (c.flat || 0) + "</span>" +
+            '<span class="sep">|</span>' +
+            '<span class="lab">' + BOARD_CN[state.sentBoard || "all"] + "站上</span>" +
+            '5日 <span class="v">' + (bd.above5 == null ? "--" : bd.above5) + '%</span>' +
+            ' 10日 <span class="v">' + (bd.above10 == null ? "--" : bd.above10) + '%</span>' +
+            ' 20日 <span class="v">' + (bd.above20 == null ? "--" : bd.above20) + '%</span>' +
+            '<span class="sep">|</span>' +
+            '两市成交 <span class="v">' + (c.amt || 0).toLocaleString() + '</span> 亿';
+    el.innerHTML = h;
+  }
+
   function renderSent(s) {
     state.sent = s;
     setUpd("sent-upd", s.updated);
@@ -751,6 +777,7 @@
     fetchJSON("data/tri_bond.json").then(renderTri).catch(showErr("tri"));
     fetchJSON("data/turnover.json").then(renderTurn).catch(showErr("turn"));
     fetchJSON("data/hot_stocks.json").then(renderHot).catch(showErr("hot"));
+    fetchJSON("data/sentiment_rt.json").then(renderSentRt).catch(function () {});
     fetchJSON("data/us_sectors.json")
       .then(function (us) { state.us = us; renderMarket(); }).catch(showErr("us"));
     fetchJSON("data/kr_stocks.json")
@@ -794,6 +821,7 @@
     e.target.classList.add("on");
     state.sentBoard = e.target.getAttribute("data-board");
     if (state.sent) renderSent(state.sent);
+    if (state.sentRt) renderSentRt(state.sentRt);
   });
 
   $("hot-toggle").addEventListener("click", function (e) {
@@ -849,12 +877,13 @@
   });
 
   loadAll();
-  setInterval(function () {  // 美股/韩股/热股 每60秒自动刷新
+  setInterval(function () {  // 美股/韩股/热股/情绪盘中 每60秒自动刷新
     fetchJSON("data/us_sectors.json")
       .then(function (us) { state.us = us; renderMarket(); }).catch(function () {});
     fetchJSON("data/kr_stocks.json")
       .then(function (kr) { state.kr = kr; renderMarket(); }).catch(function () {});
     fetchJSON("data/hot_stocks.json").then(renderHot).catch(function () {});
+    fetchJSON("data/sentiment_rt.json").then(renderSentRt).catch(function () {});
     fetchJSON("data/meta.json").then(renderMeta).catch(function () {});
   }, 60000);
   setInterval(loadAll, 30 * 60 * 1000);   // A股图表每30分钟刷新

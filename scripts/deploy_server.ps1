@@ -1,4 +1,4 @@
-﻿# kanban - Windows server one-click deploy
+# kanban - Windows server one-click deploy
 # Usage: admin PowerShell:
 #   powershell -ExecutionPolicy Bypass -File deploy_server.ps1 [-Port 8080]
 param(
@@ -43,6 +43,8 @@ if (Test-Path "$Root\data") {
     Rename-Item $Root "kanban.old" -ErrorAction SilentlyContinue
 }
 Move-Item $inner.FullName $Root -Force
+if (Test-Path "$Root.old\python") { Move-Item "$Root.old\python" "$Root\python" -Force }
+if (Test-Path "$Root.old\logs")   { Move-Item "$Root.old\logs" "$Root\logs" -Force }
 Remove-Item "$Root.new", "$Root.old" -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host "site ready: $Root"
 
@@ -82,6 +84,7 @@ Write-Host "`n==== scheduled tasks ====" -ForegroundColor Cyan
 $defs = @(
     @{ N = "kanban-web";  S = "hot_stocks.py";   SC = "onstart"; RU = "SYSTEM"; WEB = $true },
     @{ N = "kanban-hot";  S = "hot_stocks.py";   SC = "minute"; MO = 10 },
+    @{ N = "kanban-sent"; S = "sentiment_rt.py"; SC = "minute"; MO = 10 },
     @{ N = "kanban-us";   S = "us_sectors.py";   SC = "minute"; MO = 10 },
     @{ N = "kanban-kr";   S = "kr_stocks.py";    SC = "minute"; MO = 10 },
     @{ N = "kanban-cn1";  S = "update_cn.py";    SC = "daily";  ST = "20:30" },
@@ -113,7 +116,7 @@ Start-Sleep 4
 
 # ---------- 7. first data run ----------
 Write-Host "`n==== first data run ====" -ForegroundColor Cyan
-foreach ($s in @("hot_stocks.py", "us_sectors.py", "kr_stocks.py")) {
+foreach ($s in @("hot_stocks.py", "sentiment_rt.py", "us_sectors.py", "kr_stocks.py")) {
     & $py "$Root\scripts\$s" 2>&1 | ForEach-Object { Write-Host "  $_" }
 }
 
